@@ -1,4 +1,4 @@
-import { SEALS, type Strike } from './content.ts';
+import { HEROES, SEALS, type HeroId, type Strike } from './content.ts';
 
 type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal'; start: number; seeds: number[]};
 const COLORS: Record<Effect['kind'], string> = {
@@ -6,16 +6,92 @@ const COLORS: Record<Effect['kind'], string> = {
   heal: '#9effc1', hurt: '#ff604d', seal: '#ffe4a3'
 };
 
+const BLADE_DURATION: Record<HeroId, number> = {
+  vanguard: 440, hexweaver: 355, nightblade: 335, oathkeeper: 530
+};
+function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: number,
+  size: number, t: number, color: string): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size, size);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 13;
+  const fade = 1 - t;
+  ctx.lineWidth = 0.01 * fade;
+  ctx.beginPath();
+  switch (hero) {
+    case 'vanguard': {
+      // A heavy diagonal cut with a broad, incandescent leading edge.
+      const drop = Math.min(1, t * 5) * .14;
+      ctx.moveTo(-.29, -.35 + drop);
+      ctx.quadraticCurveTo(-.04, -.25 + drop, .29, .29 + drop);
+      ctx.lineWidth = .034 * fade;
+      ctx.stroke();
+      ctx.shadowBlur = 3;
+      ctx.lineWidth = .009 * fade;
+      ctx.strokeStyle = '#fff4d7';
+      ctx.stroke();
+      break;
+    }
+    case 'hexweaver': {
+      // A slender rapier thrust and a violet diamond on impact.
+      const reach = Math.min(1, t * 5) * .34;
+      ctx.moveTo(-.44 + reach, .20 - reach * .42);
+      ctx.lineTo(.11 + reach, -.034 - reach * .42);
+      ctx.stroke();
+      const r = .045 + t * .15;
+      ctx.translate(.12, -.045);
+      ctx.rotate(-.4);
+      ctx.beginPath();
+      ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0); ctx.closePath();
+      ctx.lineWidth = .004 * fade;
+      ctx.stroke();
+      break;
+    }
+    case 'nightblade': {
+      // Two crossing cuts, with the return cut arriving just behind the first.
+      const dash = Math.min(1, t * 6) * .13;
+      ctx.moveTo(-.30 + dash, .22);
+      ctx.quadraticCurveTo(-.01 + dash, -.12, .26 + dash, -.22);
+      ctx.stroke();
+      if (t >= .12) {
+        ctx.beginPath();
+        ctx.moveTo(-.29 - dash, -.16);
+        ctx.quadraticCurveTo(-.01 - dash, .13, .28 - dash, .21);
+        ctx.lineWidth = .007 * fade;
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'oathkeeper': {
+      // A rising crescent followed by a short halo along the blade path.
+      const lift = Math.min(1, t * 4) * .17;
+      ctx.moveTo(-.36, .20 - lift);
+      ctx.quadraticCurveTo(.22, .38 - lift, .27, -.28 - lift);
+      ctx.lineWidth = .018 * fade;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(.06, .14 - lift, .09 + t * .30, .035 + t * .13, -.45, 0, Math.PI * 2);
+      ctx.lineWidth = .004 * fade;
+      ctx.stroke();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
 export class Effects {
   private canvas: HTMLCanvasElement;
+  private hero: HeroId;
   private ctx: CanvasRenderingContext2D | null;
   private effects: Effect[] = [];
   private width = 0;
   private height = 0;
   private observer: ResizeObserver;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, hero: HeroId) {
     this.canvas = canvas;
+    this.hero = hero;
     this.ctx = canvas.getContext('2d');
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
@@ -40,11 +116,12 @@ export class Effects {
     const size = Math.min(w, h);
     for (let i = effects.length - 1; i >= 0; i--) {
       const e = effects[i]!;
-      const t = (now - e.start) / (e.kind === 'heal' ? 800 : 490);
+      const duration = e.kind === 'heal' ? 800 : e.kind === 'steel' ? BLADE_DURATION[this.hero] : 490;
+      const t = Math.max(0, (now - e.start) / duration);
       if (t >= 1) { effects.splice(i, 1); continue; }
       const x = w * 0.5, y = h * (e.kind === 'heal' ? 0.75 : 0.49);
       const a = 1 - t;
-      const color = COLORS[e.kind];
+      const color = e.kind === 'steel' ? HEROES[this.hero].color : COLORS[e.kind];
       ctx.save();
       ctx.lineCap = 'round';
       ctx.globalCompositeOperation = 'lighter';
@@ -52,12 +129,7 @@ export class Effects {
       ctx.fillStyle = color;
       ctx.globalAlpha = a;
       if (e.kind === 'steel') {
-        ctx.shadowColor = '#f3ac57'; ctx.shadowBlur = 15;
-        ctx.lineWidth = 5 * a;
-        ctx.beginPath();
-        ctx.moveTo(x - size * 0.31, y + size * 0.24);
-        ctx.quadraticCurveTo(x - size * 0.09, y - size * 0.08, x + size * 0.29, y - size * 0.21);
-        ctx.stroke();
+        drawBlade(ctx, this.hero, x, y, size, t, color);
       } else if (e.kind === 'storm') {
         ctx.lineWidth = 3 * a;
         ctx.shadowColor = color; ctx.shadowBlur = 18;

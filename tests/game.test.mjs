@@ -1,3 +1,4 @@
+import { ACHIEVEMENTS } from '../src/achievements.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
@@ -290,7 +291,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 3);
+  assert.equal(migrated?.version, 4);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -307,7 +308,7 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 3);
+  assert.equal(migrated?.version, 4);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
   migrated.run.mode = 'magic';
@@ -316,4 +317,95 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   battle.tick(1.1);
   assert.equal(migrated.run.mode, 'steel');
   assert.ok(migrated.run.mp >= 4);
+});
+
+
+test('Defeats reset consecutive streaks while preserving records and clean-wave totals', () => {
+  const run = at(1, 32, 250);
+  run.mode = 'magic';
+  const battle = new Battle(run, () => {});
+  battle.tick(1);
+  assert.equal(run.chronicle.cleanWaves, 1);
+  assert.equal(run.chronicle.cleanStreak, 1);
+  assert.equal(run.chronicle.spellUses.ember, 1);
+  assert.equal(run.chronicle.seals, 1);
+  assert.equal(run.chronicle.hits, 1);
+  assert.equal(run.chronicle.streak, 1);
+  battle.tick(1);
+  run.hp = 1;
+  run.enemyGauge = .9999;
+  run.wait = 0;
+  battle.tick(.1);
+  assert.equal(run.phase, 'fallen');
+  assert.equal(run.chronicle.streak, 0);
+  assert.equal(run.chronicle.cleanStreak, 0);
+  assert.equal(run.chronicle.bestStreak, 1);
+  assert.equal(run.chronicle.cleanWaves, 1);
+  resumeWave(run);
+  assert.ok(run.chronicle.waveFallen);
+});
+
+test('Active time excludes defeat screens and freezes after the first campaign clear', () => {
+  const run = at(32, 32, 1000);
+  const battle = new Battle(run, () => {});
+  for (const seal of ['steel', 'rime', 'storm']) {
+    run.mode = seal === 'steel' ? 'steel' : 'magic';
+    if (seal !== 'steel') run.spell = seal;
+    battle.tick(1);
+  }
+  assert.equal(run.phase, 'victory');
+  assert.ok(run.chronicle.finished);
+  const finish = run.chronicle.activeSeconds;
+  assert.ok(finish > 0 && finish < 3);
+  assert.ok(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(run));
+  battle.tick(2);
+  resumeWave(run);
+  battle.refresh();
+  battle.tick(.3, 1.5);
+  assert.equal(run.chronicle.activeSeconds, finish);
+  run.chronicle.activeSeconds = 5400;
+  assert.equal(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(run), 0);
+  run.phase = 'fallen';
+  run.chronicle.finished = false;
+  battle.tick(.3, 1.5);
+  assert.equal(run.chronicle.activeSeconds, 5400);
+});
+
+test('Old saves credit only recorded achievements and cannot submit a partial timer', () => {
+  const run = at(8, 1, 22);
+  run.kills = 224;
+  const old = {...run};
+  delete old.chronicle;
+  const save = decode(JSON.stringify({version:3, updated:Date.now(), run:old}));
+  assert.equal(save.run.chronicle.activeSeconds, null);
+  assert.equal(save.run.chronicle.cleanWaves, 7);
+  assert.equal(save.run.chronicle.bestStreak, 224);
+  assert.equal(save.run.chronicle.hits, 0);
+  const ids = ACHIEVEMENTS.map(item => item.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('An immune foe still receives the attempted spell and the caster pays its MP cost', () => {
+  const run = at(2, 1, 15);
+  run.mode = 'magic';
+  const events = [];
+  const battle = new Battle(run, event => events.push(event));
+  battle.foe.affinity = {resists:'ember',weak:'rime',immune:true};
+  const hp = run.foeHp;
+  const mp = run.mp;
+  battle.tick(1.1);
+  assert.equal(run.foeHp, hp);
+  assert.ok(run.mp < mp);
+  assert.equal(run.chronicle.spellUses.ember, 1);
+  assert.equal(run.chronicle.hits, 0);
+  assert.deepEqual(events.find(event => event.type === 'hit'),
+    {type:'hit',strike:'ember',damage:0,affinity:'immune'});
+});
+
+test('A mismatched attack against a seal emits the actual attempted strike', () => {
+  const run = at(1, 32, 15);
+  const events = [];
+  const battle = new Battle(run, event => events.push(event));
+  battle.tick(1.1);
+  assert.deepEqual(events.find(event => event.type === 'block'), {type:'block',strike:'ember',attempt:'steel'});
 });

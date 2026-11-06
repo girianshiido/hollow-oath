@@ -1,3 +1,4 @@
+import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS } from './achievements.ts';
 import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
@@ -24,6 +25,8 @@ let hero: HeroId = 'vanguard';
 let slot = 0;
 let screen = 'title';
 let battle: Battle | undefined;
+let unlocked = new Set<string>();
+let recordsDirty = false;
 let effects: Effects | undefined;
 let dialogKind = '';
 let gearTab = 'stats';
@@ -34,6 +37,7 @@ try { autoEquip = localStorage.getItem(AUTO_EQUIP_KEY) === 'true'; }
 catch { /* Use the default if storage is unavailable. */ }
 let dialogOpener: HTMLElement | null = null;
 let toastTimer = 0;
+let achievementToastTimer = 0;
 let longTimer = 0;
 let suppressTap = false;
 let bookPointer: {id: number; x: number; y: number} | undefined;
@@ -54,7 +58,7 @@ function mount(name: string, body: string): void {
   effects?.dispose();
   effects = undefined;
   dialogKind = '';
-  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div>';
+  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div>';
   const dialog = find<HTMLDialogElement>('sheet');
   dialog.addEventListener('close', () => {
     dialogKind = '';
@@ -76,6 +80,7 @@ function title(): void {
   battle = undefined;
   mount('title', `<main class="frame title-screen" tabindex="-1">
     <div class="title-plate" aria-hidden="true" style="--cover:url(&quot;${art('title')}&quot;)"></div>
+    <div class="title-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="folio"><span>AN ILLUSTRATED DARK FANTASY</span><i></i><span>VOL. I</span></div>
     <div class="title-center">
       <p class="title-kicker">THE CHRONICLE OF THE HOLLOW</p>
@@ -160,6 +165,8 @@ function help(): void {
 
 function startArena(run: Run): void {
   battle = new Battle(run, battleEvent);
+  unlocked = new Set(ACHIEVEMENTS.filter(item => item.progress(run) >= item.target).map(item => item.id));
+  recordsDirty = false;
   dirty = false;
   nextSave = nextHud = lastFrame = 0;
   displaySeal = displayPhase = '';
@@ -207,7 +214,7 @@ function startArena(run: Run): void {
     </footer>
     <div id="outcome" hidden></div>
   </main>`);
-  effects = new Effects(find<HTMLCanvasElement>('fx'));
+  effects = new Effects(find<HTMLCanvasElement>('fx'), run.hero);
   bindBook();
   displayEncounter();
   updateHud();
@@ -315,6 +322,7 @@ function outcome(): void {
       'All thirty-two waves are cleared. The oath is fulfilled.'}</p>
     <button class="primary" data-action="resume-wave">${lost ? 'Retry Wave' : 'Replay Final Wave'} ${icon('next')}</button>
     <button class="text-action" data-action="${lost ? 'visit-shop' : 'gear'}">${lost ? 'Visit Shop' : 'Open Armory'}</button>
+    <button class="text-action exit-link" data-action="achievements">Achievements</button>
     <button class="text-action exit-link" data-action="exit">Return to Title</button>
   </div>`;
   el.querySelector<HTMLElement>('.primary')?.focus({preventScroll: true});
@@ -335,16 +343,16 @@ function animate(name: string): void {
   figure.classList.add(name);
 }
 function battleEvent(event: BattleEvent): void {
-  dirty = true;
+  dirty = recordsDirty = true;
   switch (event.type) {
     case 'hit':
+      if (!reduced.matches) effects?.add(event.strike);
       if (event.affinity === 'immune') {
         void playSound('block');
         pop('IMMUNE', '#d2c9bb', 'seal-float');
         break;
       }
       void playSound(event.strike);
-      if (!reduced.matches) effects?.add(event.strike);
       pop('−' + fmt(event.damage) + (event.affinity === 'weak' ? '!' : ''), strikeColor(event.strike));
       if (event.affinity === 'resisted') pop('RESISTED', '#d2c9bb', 'seal-float');
       animate('hit');
@@ -506,6 +514,49 @@ function gearView(): void {
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
     `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">The Shop and Workshop open after a defeat, before you retry.</p>'}${body}`, shopOpen ? 'RECOVERY CAMP' : 'EQUIPMENT');
 }
+function elapsedLabel(seconds: number): string {
+  const full = Math.floor(seconds);
+  return Math.floor(full / 60) + 'm ' + String(full % 60).padStart(2, '0') + 's';
+}
+function notifyAchievements(): void {
+  recordsDirty = false;
+  const gained = ACHIEVEMENTS.filter(item => !unlocked.has(item.id) && item.progress(current()) >= item.target);
+  if (!gained.length) return;
+  for (const item of gained) unlocked.add(item.id);
+  const notice = find('achievement-toast');
+  notice.textContent = 'Achievement unlocked · ' + gained[0]!.name + (gained.length > 1 ? ' +' + (gained.length - 1) : '');
+  notice.classList.add('shown');
+  clearTimeout(achievementToastTimer);
+  achievementToastTimer = window.setTimeout(() => notice.classList.remove('shown'), 3300);
+}
+function achievements(): void {
+  const run = current();
+  const elapsed = run.chronicle.activeSeconds;
+  const count = ACHIEVEMENTS.filter(item => item.progress(run) >= item.target).length;
+  openDialog('achievements', 'Achievements', `<div class="sheet-caption"><span>${count} / ${ACHIEVEMENTS.length} UNLOCKED</span><span>FILE 0${slot + 1}</span></div>
+    <p class="chronicle-note">${elapsed === null ? 'Timed challenges begin with a new game.' :
+      (run.chronicle.finished ? 'First clear · ' : 'Active time · ') + elapsedLabel(elapsed)}</p>
+    <div class="achievement-groups">${ACHIEVEMENT_GROUPS.map((group, index) => {
+      const entries = ACHIEVEMENTS.filter(item => item.group === group);
+      const complete = entries.filter(item => item.progress(run) >= item.target).length;
+      return `<details class="achievement-group" ${index === 0 ? 'open' : ''}>
+        <summary>${group}<span>${complete} / ${entries.length}</span></summary>
+        ${entries.map(item => {
+          const value = Math.min(item.progress(run), item.target);
+          const earned = value >= item.target;
+          const status = earned ? 'Unlocked' : item.minutes ? (elapsed === null ? 'New game only' : 'Locked') :
+            fmt(value) + ' / ' + fmt(item.target);
+          return `<div class="achievement-item ${earned ? 'earned' : ''}">
+            <span class="achievement-icon">${icon(earned ? 'mark' : 'lock')}</span>
+            <div><strong>${item.name}</strong><small>${item.description}</small>
+            ${item.minutes ? '' : `<progress aria-label="${item.name} progress" max="${item.target}" value="${value}"></progress>`}</div>
+            <span class="achievement-status">${status}</span></div>`;
+        }).join('')}</details>`;
+    }).join('')}</div>
+    <p class="sheet-foot">Time counts during active battles and transitions, including lost attempts. It pauses in menus and on the defeat screen.</p>
+    <button class="text-action" data-action="options">Back to options</button>`, 'OATH RECORD');
+}
+
 function options(): void {
   const sound = audioSettings();
   openDialog('options', 'Game paused', `<div class="options-list">
@@ -517,6 +568,7 @@ function options(): void {
         <input type="range" id="sound-volume" min="0" max="100" value="${sound.volume}" ${sound.muted ? 'disabled' : ''}></div>
       <button class="compact" id="preview-sound" data-action="sound-preview" ${sound.muted || !sound.volume ? 'disabled' : ''}>Test sound</button>
     </fieldset>
+    <button class="secondary wide" data-action="achievements">Achievements ${icon('mark')}</button>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
     <button class="secondary wide" id="update-game" data-action="update" hidden><span>Check for updates</span>${icon('next')}</button>
     <p id="update-status" class="update-status" role="status"></p>
@@ -639,6 +691,7 @@ app.addEventListener('click', event => {
     case 'help': help(); break;
     case 'close': close(); break;
     case 'options': options(); break;
+    case 'achievements': achievements(); break;
     case 'visit-shop':
     case 'gear':
       gearTab = action === 'visit-shop' && canShop(current()) ? 'shop' : 'stats';
@@ -656,6 +709,7 @@ app.addEventListener('click', event => {
         save();
         gearView();
         toast(spellLabel(current(), spell));
+        notifyAchievements();
       }
       break;
     }
@@ -670,6 +724,7 @@ app.addEventListener('click', event => {
         updateHud();
         gearView();
         toast((autoEquip ? 'Equipped ' : 'Purchased ') + gearName(gear) + '.');
+        notifyAchievements();
       }
       break;
     }
@@ -723,10 +778,12 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
   if (!battle || dialogKind || document.hidden) { lastFrame = 0; return; }
   if (lastFrame && (battle.run.phase === 'fight' || battle.run.phase === 'clear')) {
-    battle.tick(Math.min((now - lastFrame) / 1000, 0.15));
+    const elapsed = (now - lastFrame) / 1000;
+    battle.tick(Math.min(elapsed, 0.15), elapsed);
     dirty = true;
   }
   lastFrame = now;
+  if (recordsDirty) notifyAchievements();
   effects?.draw(now);
   if (now >= nextHud) {
     updateHud();

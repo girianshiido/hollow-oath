@@ -41,6 +41,16 @@ h1, h2, p, figure, dl, dd { margin: 0; }
 
 .title-screen { display: grid; grid-template-rows: auto 1fr auto; min-height: 100svh; padding: max(22px, env(safe-area-inset-top)) clamp(22px, 6vw, 55px) max(13px, env(safe-area-inset-bottom)); overflow: hidden; }
 .title-screen::after { content: ''; pointer-events: none; position: absolute; z-index: -1; inset: 12px; border: 1px solid #f5d39336; box-shadow: inset 0 0 0 3px #0c110c38; }
+.title-atmosphere { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.title-atmosphere::before { content: ''; position: absolute; inset: 4% 8% 41%; background: radial-gradient(ellipse at 50% 16%, #fbd98c37, transparent 52%); animation: eclipse-breath 9s ease-in-out infinite alternate; }
+.title-atmosphere i { --drift: 20px; position: absolute; bottom: 8%; left: 14%; width: 3px; height: 3px; border-radius: 50%; background: #f6d6a1; box-shadow: 0 0 7px #ffbd62; animation: title-mote 10s linear -5s infinite; }
+.title-atmosphere i:nth-child(2) { left: 26%; animation-delay: -8s; animation-duration: 15s; }
+.title-atmosphere i:nth-child(3) { left: 39%; animation-delay: -3s; animation-duration: 13s; --drift: -26px; }
+.title-atmosphere i:nth-child(4) { left: 61%; animation-delay: -9s; animation-duration: 12s; }
+.title-atmosphere i:nth-child(5) { left: 74%; animation-delay: -5s; animation-duration: 16s; --drift: -19px; }
+.title-atmosphere i:nth-child(6) { left: 86%; animation-delay: -1s; animation-duration: 11s; --drift: -28px; }
+@keyframes eclipse-breath { from { opacity: .28; transform: scale(.96); } to { opacity: .9; transform: scale(1.06); } }
+@keyframes title-mote { 0% { opacity: 0; transform: translate(0, 0); } 18% { opacity: .75; } 78% { opacity: .35; } 100% { opacity: 0; transform: translate(var(--drift), -70svh); } }
 .title-plate { position: absolute; inset: 0; z-index: -2; background: linear-gradient(180deg, #0c130b58, #0b0d0970 50%, #0a0e0b 100%), var(--cover) 50% 46%/cover, #26302a; }
 .folio { display: flex; gap: 14px; justify-content: space-between; align-items: center; color: #e7d7b3; font-size: 9px; font-weight: 750; letter-spacing: .17em; }
 .folio i { flex: 1; height: 1px; background: #ead8a643; }
@@ -241,6 +251,7 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   .float { animation: none !important; }
+  .title-atmosphere { display: none; }
 }
 .update-status { color: var(--gold); font-size: 12px; line-height: 1.4; margin: 1px 0 4px; }
 .update-status:empty { display: none; }
@@ -258,3 +269,18 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 .gear-tabs button:disabled { color: var(--muted); opacity: .8; }
 .affinity { color: #ebd7ae; font-size: 10px; margin-top: 3px; line-height: 1.25; }
 .affinity:empty { display: none; }
+
+.chronicle-note { color: var(--muted); font-size: 12px; margin-bottom: 9px; }
+.achievement-groups { display: grid; gap: 5px; }
+.achievement-group { border: 1px solid var(--line); background: #141b15; }
+.achievement-group summary { cursor: pointer; padding: 10px 8px; color: var(--gold); font-size: 13px; }
+.achievement-group summary span { float: right; color: var(--muted); }
+.achievement-item { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; border-top: 1px solid var(--line); padding: 6px 7px; }
+.achievement-item strong { display: block; font-size: 12px; }
+.achievement-item small { display: block; font-size: 11px; color: var(--muted); }
+.achievement-icon svg { width: 17px; height: 17px; }
+.achievement-status { font-size: 9px; color: var(--muted); text-align: right; }
+.achievement-item.earned .achievement-icon, .achievement-item.earned .achievement-status { color: var(--gold); }
+.achievement-item progress { display: block; width: 100%; height: 4px; margin-top: 4px; accent-color: var(--gold); }
+
+.achievement-toast { top: auto; bottom: calc(88px + env(safe-area-inset-bottom)); }

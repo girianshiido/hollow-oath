@@ -1,3 +1,4 @@
+import { newChronicle, type Chronicle } from './achievements.ts';
 import {
   encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, MAX_SPELL_RANK, spellCost, SPELLS, WAVE_COUNT, xpGoal,
   type Enemy, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
@@ -8,13 +9,15 @@ export interface Run {
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
+  chronicle: Chronicle;
   essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number;
   phase: Phase; wait: number; inventory: Gear[]; equipped: Partial<Record<GearSlot, string>>;
 }
 export type BattleEvent =
   | {type: 'hit'; strike: Strike; damage: number; affinity?: 'resisted' | 'immune' | 'weak'}
   | {type: 'hurt'; damage: number; arcane: boolean}
-  | {type: 'seal' | 'block'; strike: Strike}
+  | {type: 'seal'; strike: Strike}
+  | {type: 'block'; strike: Strike; attempt: Strike}
   | {type: 'heal'; amount: number}
   | {type: 'ward'; amount: number}
   | {type: 'empty' | 'fallen' | 'enter' | 'armed'}
@@ -56,7 +59,7 @@ export function newRun(hero: HeroId): Run {
     hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
-    essence: 0, essenceClaims: [], spellRanks: {}, ward: 0,
+    chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0,
     phase: 'fight', wait: 0, inventory: [], equipped: {}
   };
   openEncounter(run);
@@ -68,6 +71,7 @@ export function resumeWave(run: Run): void {
   else if (run.phase === 'clear') {
     run.wave++;
     run.step = 1;
+    run.chronicle.waveFallen = false;
   } else return;
   const values = stats(run);
   run.hp = values.hp;
@@ -144,13 +148,19 @@ export class Battle {
     this.foe = encounter(this.run.wave, this.run.step);
     this.player = stats(this.run);
   }
-  tick(seconds: number): void {
+  tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
     if (!Number.isFinite(seconds) || seconds <= 0) return;
+    const clock = run.chronicle;
+    const timeScale = Number.isFinite(realSeconds) && realSeconds > 0 ? realSeconds / seconds : 1;
+    const track = (elapsed: number) => {
+      if (!clock.finished && clock.activeSeconds !== null) clock.activeSeconds += elapsed * timeScale;
+    };
     let remaining = seconds;
     if (run.phase === 'clear') {
       const elapsed = Math.min(run.wait, remaining);
       run.wait -= elapsed;
+      track(elapsed);
       remaining -= elapsed;
       if (run.wait > 1e-8) return;
       resumeWave(run);
@@ -165,6 +175,7 @@ export class Battle {
         const elapsed = Math.min(run.wait, remaining);
         run.wait -= elapsed;
         remaining -= elapsed;
+        track(elapsed);
         this.regenerate(elapsed);
         if (run.wait > epsilon) break;
         run.wait = 0;
@@ -183,6 +194,7 @@ export class Battle {
       run.playerGauge += elapsed * this.player.spd;
       run.enemyGauge += elapsed * this.foe.spd;
       remaining -= elapsed;
+      track(elapsed);
       this.regenerate(elapsed);
       if (run.enemyGauge >= 1 - epsilon) {
         run.enemyGauge = 0;
@@ -195,6 +207,9 @@ export class Battle {
         if (!run.hp) {
           run.phase = 'fallen';
           run.deaths++;
+          clock.streak = 0;
+          clock.cleanStreak = 0;
+          clock.waveFallen = true;
           this.send({type: 'fallen'});
         }
       }
@@ -223,6 +238,7 @@ export class Battle {
         this.send({type: 'empty'});
       } else {
         run.mp = Math.max(0, run.mp - cost);
+        run.chronicle.spellUses[run.spell]++;
         if (run.mp + 1e-8 < cost) {
           run.mode = 'steel';
           this.send({type: 'empty'});
@@ -244,10 +260,11 @@ export class Battle {
     const seal = activeSeal(run, this.foe);
     if (seal) {
       if (seal !== strike) {
-        this.send({type: 'block', strike: seal});
+        this.send({type: 'block', strike: seal, attempt: strike});
         return;
       }
       run.broken++;
+      run.chronicle.seals++;
       this.send({type: 'seal', strike: seal});
     }
     const power = strike === 'ember' ? 1.36 : strike === 'rime' ? 1.18 : run.spell === 'verdict' ? 2.45 : 1.62;
@@ -262,6 +279,11 @@ export class Battle {
     const nextFloor = sealFloor(this.foe, run.broken);
     const actual = Math.min(Math.max(0, run.foeHp - nextFloor), damage);
     run.foeHp -= actual;
+    if (actual > 0) {
+      run.chronicle.hits++;
+      if (strike === 'steel') run.chronicle.steelHits++;
+      if (affinity === 'weak') run.chronicle.weakHits++;
+    }
     this.send({type: 'hit', strike, damage: actual, affinity});
     if (run.foeHp === 0) this.win();
     else if (run.foeHp === nextFloor) this.send({type: 'armed'});
@@ -275,6 +297,9 @@ export class Battle {
     run.gold += foe.gold;
     run.xp += foe.xp;
     run.kills++;
+    const clock = run.chronicle;
+    clock.streak++;
+    clock.bestStreak = Math.max(clock.bestStreak, clock.streak);
     const before = run.level;
     while (run.xp >= xpGoal(run.level)) run.xp -= xpGoal(run.level++);
     if (run.level > before) {
@@ -295,6 +320,12 @@ export class Battle {
       }
     }
     if (foe.boss) {
+      if (!clock.finished && !clock.waveFallen) {
+        clock.cleanWaves++;
+        clock.cleanStreak++;
+        clock.bestCleanStreak = Math.max(clock.bestCleanStreak, clock.cleanStreak);
+      }
+      if (run.wave === WAVE_COUNT) clock.finished = true;
       run.phase = run.wave === WAVE_COUNT ? 'victory' : 'clear';
       run.wait = run.phase === 'clear' ? 0.95 : 0;
     }

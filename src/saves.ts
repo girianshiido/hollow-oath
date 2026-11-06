@@ -1,17 +1,18 @@
-import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HERO_IDS, MAX_SPELL_RANK, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
+import { CHRONICLE_COUNTERS, newChronicle } from './achievements.ts';
+import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HERO_IDS, MAX_SPELL_RANK, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
-export const SLOT_COUNT = 3;
-export interface Save { version: 3; updated: number; run: Run }
+export const SLOT_COUNT = 4;
+export interface Save { version: 4; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 3, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 4, updated: raw.updated, run: raw.run};
     const r = data.run;
     if (!r || !HERO_IDS.includes(r.hero) || !numeric(r.level, 1, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.xp, 0, xpGoal(r.level) - 1, true) || !numeric(r.gold, 0, Number.MAX_SAFE_INTEGER, true) ||
@@ -49,6 +50,25 @@ export function decode(text: string): Save | null {
     }
     if (!knownRank(r, r.spell)) return null;
     delete raw.run.castRank;
+    if (raw.version < 4) {
+      const clock = newChronicle(null);
+      clock.finished = r.phase === 'victory' || claims.has(WAVE_COUNT * ENCOUNTER_COUNT);
+      const completed = clock.finished ? WAVE_COUNT : r.wave - (r.phase === 'clear' ? 0 : 1);
+      if (!r.deaths) {
+        clock.streak = clock.bestStreak = r.kills;
+        clock.cleanWaves = clock.cleanStreak = clock.bestCleanStreak = completed;
+      }
+      clock.waveFallen = r.deaths > 0;
+      r.chronicle = clock;
+    }
+    const clock = r.chronicle;
+    if (!clock || typeof clock.finished !== 'boolean' || typeof clock.waveFallen !== 'boolean' ||
+      (clock.activeSeconds !== null && !numeric(clock.activeSeconds, 0, Number.MAX_SAFE_INTEGER)) ||
+      !clock.spellUses || !SPELL_IDS.every(id => numeric(clock.spellUses[id], 0, Number.MAX_SAFE_INTEGER, true)) ||
+      !CHRONICLE_COUNTERS.every(key => numeric(clock[key], 0, Number.MAX_SAFE_INTEGER, true)) ||
+      clock.bestStreak > r.kills || clock.streak > clock.bestStreak || clock.cleanWaves > WAVE_COUNT ||
+      clock.bestCleanStreak > clock.cleanWaves || clock.cleanStreak > clock.bestCleanStreak ||
+      clock.steelHits > clock.hits || clock.weakHits > clock.hits) return null;
     const gearIds = new Set<string>();
     for (const gear of r.inventory) {
       if (!gear || !GEAR_SLOTS.includes(gear.slot) || !numeric(gear.tier, 1, r.wave, true) || typeof gear.relic !== 'boolean') return null;
@@ -84,5 +104,5 @@ export function writeSlot(index: number, run: Run): boolean {
   } catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 3, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 4, updated: Date.now(), run} satisfies Save);
 }
