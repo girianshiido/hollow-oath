@@ -70,10 +70,10 @@ function installed(candidate: ServiceWorker): Promise<void> {
   });
 }
 
-export async function updateGame(saveBeforeReload: () => boolean): Promise<void> {
+export async function updateGame(saveBeforeReload?: () => boolean): Promise<void> {
   if (!registration || state === 'checking' || state === 'applying') return;
   if (state === 'reload' || (state === 'ready' && activeRegistration?.waiting)) {
-    if (!saveBeforeReload()) {
+    if (saveBeforeReload && !saveBeforeReload()) {
       show(state, 'Save unavailable. Export a backup before updating.');
       return;
     }
@@ -81,7 +81,7 @@ export async function updateGame(saveBeforeReload: () => boolean): Promise<void>
       location.reload();
       return;
     }
-    show('applying', 'Saved. Switching to the new version…');
+    show('applying', saveBeforeReload ? 'Saved. Switching to the new version…' : 'Switching to the new version…');
     applyTimer = window.setTimeout(() => show('reload', 'Reload to finish switching versions.'), 15000);
     activeRegistration!.waiting!.postMessage({type: 'APPLY_UPDATE'});
     return;

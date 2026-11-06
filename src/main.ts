@@ -92,8 +92,15 @@ function title(): void {
         <button class="secondary" data-action="load">Load Game ${symbol('◇')}</button>
       </div>
     </div>
-    <div class="title-bottom"><button class="text-action" data-action="help">How to play</button><span>32 WAVES <b>◆</b> 4 OATHS</span></div>
+    <footer class="title-footer">
+      <div class="title-bottom">
+        <button class="text-action" data-action="help">How to play</button>
+        <button class="text-action" id="update-game" data-action="update" hidden><span>Check for updates</span></button>
+      </div>
+      <p id="update-status" class="update-status" role="status"></p>
+    </footer>
   </main>`);
+  renderUpdates();
 }
 
 function heroScreen(): void {
@@ -753,7 +760,7 @@ app.addEventListener('click', event => {
       break;
     case 'exit': save(); title(); break;
     case 'sound-preview': void playSound('steel', true); break;
-    case 'update': void updateGame(() => { save(); return saved; }); break;
+    case 'update': void updateGame(battle ? () => { save(); return saved; } : undefined); break;
     case 'export': exportSave(); break;
     case 'import': importSave(); break;
   }

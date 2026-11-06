@@ -66,7 +66,7 @@ h1, h2, p, figure, dl, dd { margin: 0; }
 .title-actions { display: grid; gap: 8px; width: min(100%, 274px); margin: 24px auto 0; }
 .title-bottom { display: flex; justify-content: space-between; align-items: center; color: #c5bca6; font-size: 10px; letter-spacing: .13em; }
 .title-bottom .text-action { font-size: 13px; letter-spacing: 0; }
-.title-bottom b { color: var(--gold); margin: 0 3px; font-size: 8px; }
+.title-footer .update-status { text-align: right; }
 
 .selection-head { display: flex; align-items: center; gap: 12px; color: var(--gold); font-size: 10px; letter-spacing: .18em; font-weight: 700; }
 .selection-head small { margin-left: auto; font-size: 9px; color: var(--muted); }

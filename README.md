@@ -36,7 +36,7 @@ pnpm preview
 
 The production build also writes `release/Hollow-Oath.html`, a self-contained edition you can open directly in a desktop browser. It contains the game and all its art.
 
-Publish the contents of `dist/` on a static HTTPS host, including GitHub Pages. Relative asset URLs and the service worker support hosting at a repository subpath. Offline play becomes available after the service worker finishes downloading the game. The pause menu reports the offline cache state. Use **Check for updates** to download a new release, then **Install update** to save the current game and reload. Publishing a new release preserves the four local files on the same web address.
+Publish the contents of `dist/` on a static HTTPS host, including GitHub Pages. Relative asset URLs and the service worker support hosting at a repository subpath. Offline play becomes available after the service worker finishes downloading the game. The pause menu reports the offline cache state. Use **Check for updates** on the title screen or in Options to download a new release, then **Install update** to save the current game and reload. Publishing a new release preserves the four local files on the same web address.
 
 GitHub Actions builds and deploys the game after each push to `main`. The repository's Pages publishing source is set to **GitHub Actions**.
 
