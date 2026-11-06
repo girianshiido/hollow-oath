@@ -77,6 +77,8 @@ export function resumeWave(run: Run): void {
   run.hp = values.hp;
   run.mp = values.mp;
   run.ward = 0;
+  run.chronicle.gearFreeAttempt = Object.keys(run.equipped).length === 0;
+  run.chronicle.spellFreeAttempt = true;
   run.phase = 'fight';
   openEncounter(run);
 }
@@ -123,6 +125,7 @@ export function equipGear(run: Run, gear: Gear | undefined, slot: GearSlot): voi
   if (gear) {
     if (gear.slot !== slot || !run.inventory.some(item => gearId(item) === gearId(gear))) return;
     run.equipped[slot] = gearId(gear);
+    run.chronicle.gearFreeAttempt = false;
   } else delete run.equipped[slot];
   const next = stats(run);
   if (run.hp > 0) run.hp = Math.max(1, Math.min(next.hp, run.hp * next.hp / old.hp));
@@ -239,6 +242,7 @@ export class Battle {
       } else {
         run.mp = Math.max(0, run.mp - cost);
         run.chronicle.spellUses[run.spell]++;
+        run.chronicle.spellFreeAttempt = false;
         if (run.mp + 1e-8 < cost) {
           run.mode = 'steel';
           this.send({type: 'empty'});
@@ -273,6 +277,7 @@ export class Battle {
     const trait = this.foe.affinity;
     const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
       trait?.weak === strike ? 'weak' : undefined;
+    if (affinity === 'immune') run.chronicle.immuneHits++;
     const damage = affinity === 'immune' ? 0 : Math.max(1, Math.round(baseDamage *
       (affinity === 'resisted' ? 0.30 : affinity === 'weak' ? 1.5 : 1)));
     if (strike === 'rime' && damage > 0) run.enemyGauge = Math.max(0, run.enemyGauge - 0.23);
@@ -300,6 +305,11 @@ export class Battle {
     const clock = run.chronicle;
     clock.streak++;
     clock.bestStreak = Math.max(clock.bestStreak, clock.streak);
+    if (foe.boss) {
+      if (clock.gearFreeAttempt) clock.clearedGearFree = true;
+      if (clock.spellFreeAttempt) clock.clearedSpellFree = true;
+      if (run.hp / this.player.hp <= 0.05) clock.nearDeathClear = true;
+    }
     const before = run.level;
     while (run.xp >= xpGoal(run.level)) run.xp -= xpGoal(run.level++);
     if (run.level > before) {

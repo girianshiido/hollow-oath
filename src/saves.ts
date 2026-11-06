@@ -4,15 +4,15 @@ import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
 export const SLOT_COUNT = 4;
-export interface Save { version: 4; updated: number; run: Run }
+export interface Save { version: 5; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 4, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 5, updated: raw.updated, run: raw.run};
     const r = data.run;
     if (!r || !HERO_IDS.includes(r.hero) || !numeric(r.level, 1, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.xp, 0, xpGoal(r.level) - 1, true) || !numeric(r.gold, 0, Number.MAX_SAFE_INTEGER, true) ||
@@ -62,7 +62,14 @@ export function decode(text: string): Save | null {
       r.chronicle = clock;
     }
     const clock = r.chronicle;
+    if (raw.version < 5 && clock) {
+      clock.gearFreeAttempt = clock.spellFreeAttempt = false;
+      clock.clearedGearFree = clock.clearedSpellFree = clock.nearDeathClear = false;
+      clock.immuneHits = 0;
+    }
     if (!clock || typeof clock.finished !== 'boolean' || typeof clock.waveFallen !== 'boolean' ||
+      ![clock.gearFreeAttempt, clock.spellFreeAttempt, clock.clearedGearFree,
+        clock.clearedSpellFree, clock.nearDeathClear].every(value => typeof value === 'boolean') ||
       (clock.activeSeconds !== null && !numeric(clock.activeSeconds, 0, Number.MAX_SAFE_INTEGER)) ||
       !clock.spellUses || !SPELL_IDS.every(id => numeric(clock.spellUses[id], 0, Number.MAX_SAFE_INTEGER, true)) ||
       !CHRONICLE_COUNTERS.every(key => numeric(clock[key], 0, Number.MAX_SAFE_INTEGER, true)) ||
@@ -79,6 +86,7 @@ export function decode(text: string): Save | null {
     for (const [slot, id] of Object.entries(r.equipped)) {
       if (typeof id !== 'string' || !id.startsWith(slot + ':') || !gearIds.has(id)) return null;
     }
+    if (clock.gearFreeAttempt && Object.keys(r.equipped).length) return null;
     const foe = encounter(r.wave, r.step);
     const values = stats(r);
     if (!numeric(r.hp, 0, values.hp) || !numeric(r.mp, 0, values.mp) || !numeric(r.foeHp, 0, foe.hp, true) ||
@@ -104,5 +112,5 @@ export function writeSlot(index: number, run: Run): boolean {
   } catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 4, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 5, updated: Date.now(), run} satisfies Save);
 }

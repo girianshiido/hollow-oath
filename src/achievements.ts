@@ -1,14 +1,19 @@
-import { SPELL_IDS, WAVE_COUNT, type SpellId } from './content.ts';
+import { HEROES, HERO_IDS, SPELL_IDS, WAVE_COUNT, type HeroId, type SpellId } from './content.ts';
 import type { Run } from './engine.ts';
 
 export const CHRONICLE_COUNTERS = [
   'streak', 'bestStreak', 'hits', 'steelHits', 'seals', 'weakHits',
-  'cleanWaves', 'cleanStreak', 'bestCleanStreak'
+  'cleanWaves', 'cleanStreak', 'bestCleanStreak', 'immuneHits'
 ] as const;
 
 export interface Chronicle extends Record<typeof CHRONICLE_COUNTERS[number], number> {
   spellUses: Record<SpellId, number>;
   waveFallen: boolean;
+  gearFreeAttempt: boolean;
+  spellFreeAttempt: boolean;
+  clearedGearFree: boolean;
+  clearedSpellFree: boolean;
+  nearDeathClear: boolean;
   finished: boolean;
   activeSeconds: number | null;
 }
@@ -16,17 +21,18 @@ export interface Chronicle extends Record<typeof CHRONICLE_COUNTERS[number], num
 export function newChronicle(activeSeconds: number | null = 0): Chronicle {
   return {
     streak: 0, bestStreak: 0, hits: 0, steelHits: 0, seals: 0, weakHits: 0,
-    cleanWaves: 0, cleanStreak: 0, bestCleanStreak: 0, waveFallen: false,
+    cleanWaves: 0, cleanStreak: 0, bestCleanStreak: 0, immuneHits: 0, waveFallen: false,
+    gearFreeAttempt: true, spellFreeAttempt: true, clearedGearFree: false, clearedSpellFree: false, nearDeathClear: false,
     finished: false, activeSeconds,
     spellUses: { ember: 0, mend: 0, rime: 0, storm: 0, aegis: 0, verdict: 0 }
   };
 }
 
-export const ACHIEVEMENT_GROUPS = ['Combat', 'Survival', 'Magic', 'Campaign'] as const;
+export const ACHIEVEMENT_GROUPS = ['Combat', 'Survival', 'Magic', 'Campaign', 'Classes', 'Oddities'] as const;
 type Group = typeof ACHIEVEMENT_GROUPS[number];
 interface Achievement {
   group: Group; id: string; name: string; description: string; target: number;
-  progress: (run: Run) => number;
+  progress: (run: Run, victories?: ReadonlySet<HeroId>) => number;
   minutes?: number;
 }
 
@@ -38,6 +44,8 @@ const spells = (r: Run) => SPELL_IDS.reduce((sum, id) => sum + r.chronicle.spell
 const waves = (r: Run) => r.chronicle.finished ? WAVE_COUNT : r.wave - (r.phase === 'clear' ? 0 : 1);
 const metric = (group: Group, id: string, name: string, description: string,
   target: number, progress: Achievement['progress']): Achievement => ({ group, id, name, description, target, progress });
+const finishedAs = (run: Run, hero: HeroId, victories?: ReadonlySet<HeroId>) =>
+  (run.hero === hero && run.chronicle.finished) || victories?.has(hero) === true;
 const timed = (minutes: number, name: string): Achievement => ({
   ...metric('Campaign', 'time-' + minutes, name, 'Finish the campaign in under ' + minutes + ' minutes of active play.', 1,
     r => Number(r.chronicle.finished && r.chronicle.activeSeconds !== null && r.chronicle.activeSeconds < minutes * 60)),
@@ -65,6 +73,11 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   metric('Survival', 'clean-16', 'Half the Hollow', 'Clear 16 different waves on your first attempt.', 16, clean),
   metric('Survival', 'clean-streak-3', 'The Iron Road', 'Clear 3 consecutive waves without a defeat.', 3, r => r.chronicle.bestCleanStreak),
   metric('Survival', 'fall-1', 'Rise Again', 'Fall in battle for the first time.', 1, r => r.deaths),
+  metric('Survival', 'fall-10', 'Familiar Ground', 'Fall in battle 10 times.', 10, r => r.deaths),
+  metric('Survival', 'fall-50', 'The Grave Knows You', 'Fall in battle 50 times.', 50, r => r.deaths),
+  metric('Survival', 'fall-100', 'Frequent Fall Card', 'Fall in battle 100 times.', 100, r => r.deaths),
+  metric('Survival', 'fall-250', 'Resident of the Underworld', 'Fall in battle 250 times.', 250, r => r.deaths),
+  metric('Survival', 'fall-1000', 'Death Is a Habit', 'Fall in battle 1,000 times.', 1000, r => r.deaths),
   metric('Magic', 'cast-1', 'First Incantation', 'Cast a spell.', 1, spells),
   metric('Magic', 'cast-100', 'Arcane Student', 'Cast 100 spells.', 100, spells),
   metric('Magic', 'cast-1000', 'Living Grimoire', 'Cast 1,000 spells.', 1000, spells),
@@ -88,5 +101,20 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   metric('Campaign', 'level-50', 'Veteran of the Hollow', 'Reach character level 50.', 50, r => r.level),
   timed(180, 'Before Dawn'),
   timed(120, 'Night Runner'),
-  timed(90, 'Faster than the Dark')
+  timed(90, 'Faster than the Dark'),
+  ...HERO_IDS.map(hero => metric('Classes', 'victory-' + hero, HEROES[hero].name + ' Ascendant',
+    'Finish the campaign as the ' + HEROES[hero].name + '.', 1,
+    (run, victories) => Number(finishedAs(run, hero, victories)))),
+  metric('Classes', 'victory-all', 'Four Oaths Kept', 'Finish the campaign with all four classes across your saved files.', 4,
+    (run, victories) => HERO_IDS.filter(hero => finishedAs(run, hero, victories)).length),
+  metric('Oddities', 'gear-free', 'Dress Code Optional', 'Clear an entire wave with every equipment slot empty.', 1,
+    r => Number(r.chronicle.clearedGearFree)),
+  metric('Oddities', 'spell-free', 'The Silent Grimoire', 'Clear an entire wave without casting a spell.', 1,
+    r => Number(r.chronicle.clearedSpellFree)),
+  metric('Oddities', 'near-death', 'By a Thread', 'Defeat a guardian with 5% HP or less before the rewards.', 1,
+    r => Number(r.chronicle.nearDeathClear)),
+  metric('Oddities', 'immune-25', 'Talking to a Wall', 'Strike an immune foe 25 times in total.', 25,
+    r => r.chronicle.immuneHits),
+  metric('Oddities', 'all-spells', 'One of Everything', 'Cast all six spells at least once.', 6,
+    r => SPELL_IDS.filter(id => r.chronicle.spellUses[id] > 0).length)
 ];

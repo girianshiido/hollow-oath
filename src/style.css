@@ -284,3 +284,4 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 .achievement-item progress { display: block; width: 100%; height: 4px; margin-top: 4px; accent-color: var(--gold); }
 
 .achievement-toast { top: auto; bottom: calc(88px + env(safe-area-inset-bottom)); }
+.achievement-group-note { border-top: 1px solid var(--line); padding: 6px 8px; color: var(--muted); font-size: 11px; }

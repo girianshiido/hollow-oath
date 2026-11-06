@@ -294,7 +294,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 4);
+  assert.equal(migrated?.version, 5);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -311,7 +311,7 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 4);
+  assert.equal(migrated?.version, 5);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
   migrated.run.mode = 'magic';
@@ -411,4 +411,66 @@ test('A mismatched attack against a seal emits the actual attempted strike', () 
   const battle = new Battle(run, event => events.push(event));
   battle.tick(1.1);
   assert.deepEqual(events.find(event => event.type === 'block'), {type:'block',strike:'ember',attempt:'steel'});
+});
+
+
+test('Gear-free and spell-free waves track the full attempt and reset on a retry', () => {
+  const run = at(4, 32, 250);
+  const gear = {slot:'weapon',tier:1,relic:false};
+  run.inventory.push(gear);
+  equipGear(run, gear, 'weapon');
+  equipGear(run, undefined, 'weapon');
+  const battle = new Battle(run, () => {});
+  battle.tick(1);
+  assert.equal(run.phase, 'clear');
+  assert.equal(run.chronicle.clearedGearFree, false);
+  assert.equal(run.chronicle.clearedSpellFree, true);
+
+  run.phase = 'fallen';
+  run.hp = 0;
+  resumeWave(run);
+  battle.refresh();
+  assert.ok(run.chronicle.gearFreeAttempt);
+  let ticks = 0;
+  while (run.phase === 'fight' && ticks++ < 1000) {
+    const seal = activeSeal(run,battle.foe);
+    run.mode = seal && seal !== 'steel' ? 'magic' : 'steel';
+    if (seal && seal !== 'steel') run.spell = seal;
+    battle.tick(.25);
+  }
+  assert.equal(run.phase, 'clear');
+  assert.ok(run.chronicle.clearedGearFree);
+  assert.equal(run.step, 32);
+});
+
+test('Class victory badges combine saved heroes and defeats reach the intended tiers', () => {
+  const run = newRun('vanguard');
+  const progress = (id, winners) => ACHIEVEMENTS.find(item=>item.id===id).progress(run,winners);
+  run.chronicle.finished = true;
+  const winners = new Set(['nightblade','hexweaver','oathkeeper']);
+  assert.equal(progress('victory-vanguard'),1);
+  assert.equal(progress('victory-nightblade', winners),1);
+  assert.equal(progress('victory-all', winners),4);
+  run.deaths = 1000;
+  for (const goal of [10,50,100,250,1000]) {
+    const record = ACHIEVEMENTS.find(item=>item.id==='fall-'+goal);
+    assert.ok(record.progress(run) >= record.target);
+  }
+});
+
+test('Version-four saves retain achievements without inventing a full gear-free wave', () => {
+  const run = at(4, 32, 250);
+  run.chronicle.hits = 440;
+  run.chronicle.activeSeconds = 1200;
+  const old = { ...run, chronicle:{...run.chronicle} };
+  for (const key of ['gearFreeAttempt','spellFreeAttempt','clearedGearFree','clearedSpellFree','nearDeathClear','immuneHits']) delete old.chronicle[key];
+  const migrated = decode(JSON.stringify({version:4, updated:Date.now(), run:old}));
+  assert.equal(migrated.version,5);
+  assert.equal(migrated.run.chronicle.hits,440);
+  assert.equal(migrated.run.chronicle.activeSeconds,1200);
+  const battle = new Battle(migrated.run, () => {});
+  battle.tick(1);
+  assert.equal(migrated.run.phase, 'clear');
+  assert.equal(migrated.run.chronicle.clearedGearFree, false);
+  assert.equal(migrated.run.chronicle.clearedSpellFree, false);
 });

@@ -26,6 +26,7 @@ let slot = 0;
 let screen = 'title';
 let battle: Battle | undefined;
 let unlocked = new Set<string>();
+let victories = new Set<HeroId>();
 let recordsDirty = false;
 let effects: Effects | undefined;
 let dialogKind = '';
@@ -172,7 +173,8 @@ function help(): void {
 
 function startArena(run: Run): void {
   battle = new Battle(run, battleEvent);
-  unlocked = new Set(ACHIEVEMENTS.filter(item => item.progress(run) >= item.target).map(item => item.id));
+  victories = savedVictories();
+  unlocked = new Set(ACHIEVEMENTS.filter(item => item.progress(run, victories) >= item.target).map(item => item.id));
   recordsDirty = false;
   dirty = false;
   nextSave = nextHud = lastFrame = 0;
@@ -402,6 +404,7 @@ function battleEvent(event: BattleEvent): void {
       toast('Level ' + fmt(event.level) + (event.spells.length ? ' · Learned ' + event.spells.map(id => SPELLS[id].name).join(', ') : ' · Stats increased'));
       break;
     case 'kill':
+      if (current().phase === 'victory') victories = savedVictories();
       animate('slain');
       paceHint = '';
       if (event.essence || event.loot || battle?.foe.boss) void playSound('reward');
@@ -525,9 +528,12 @@ function elapsedLabel(seconds: number): string {
   const full = Math.floor(seconds);
   return Math.floor(full / 60) + 'm ' + String(full % 60).padStart(2, '0') + 's';
 }
+function savedVictories(): Set<HeroId> {
+  return new Set(slots().flatMap((file, index) => index !== slot && file?.run.chronicle.finished ? [file.run.hero] : []));
+}
 function notifyAchievements(): void {
   recordsDirty = false;
-  const gained = ACHIEVEMENTS.filter(item => !unlocked.has(item.id) && item.progress(current()) >= item.target);
+  const gained = ACHIEVEMENTS.filter(item => !unlocked.has(item.id) && item.progress(current(), victories) >= item.target);
   if (!gained.length) return;
   for (const item of gained) unlocked.add(item.id);
   const notice = find('achievement-toast');
@@ -538,18 +544,20 @@ function notifyAchievements(): void {
 }
 function achievements(): void {
   const run = current();
+  victories = savedVictories();
   const elapsed = run.chronicle.activeSeconds;
-  const count = ACHIEVEMENTS.filter(item => item.progress(run) >= item.target).length;
+  const count = ACHIEVEMENTS.filter(item => item.progress(run, victories) >= item.target).length;
   openDialog('achievements', 'Achievements', `<div class="sheet-caption"><span>${count} / ${ACHIEVEMENTS.length} UNLOCKED</span><span>FILE 0${slot + 1}</span></div>
     <p class="chronicle-note">${elapsed === null ? 'Timed challenges begin with a new game.' :
       (run.chronicle.finished ? 'First clear · ' : 'Active time · ') + elapsedLabel(elapsed)}</p>
     <div class="achievement-groups">${ACHIEVEMENT_GROUPS.map((group, index) => {
       const entries = ACHIEVEMENTS.filter(item => item.group === group);
-      const complete = entries.filter(item => item.progress(run) >= item.target).length;
+      const complete = entries.filter(item => item.progress(run, victories) >= item.target).length;
       return `<details class="achievement-group" ${index === 0 ? 'open' : ''}>
         <summary>${group}<span>${complete} / ${entries.length}</span></summary>
+        ${group === 'Classes' ? '<p class="achievement-group-note">Class victories count across your saved files.</p>' : ''}
         ${entries.map(item => {
-          const value = Math.min(item.progress(run), item.target);
+          const value = Math.min(item.progress(run, victories), item.target);
           const earned = value >= item.target;
           const status = earned ? 'Unlocked' : item.minutes ? (elapsed === null ? 'New game only' : 'Locked') :
             fmt(value) + ' / ' + fmt(item.target);
