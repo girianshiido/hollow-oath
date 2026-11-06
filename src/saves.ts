@@ -1,5 +1,5 @@
 import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle, profileFromRun, TOTAL_KEYS, type AchievementProfile } from './achievements.ts';
-import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HERO_IDS, MAX_SPELL_RANK, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
+import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
@@ -39,6 +39,9 @@ export function decode(text: string): Save | null {
       typeof r.equipped !== 'object' || Array.isArray(r.equipped)) return null;
     if (raw.version < 6) r.runId = legacyRunId(r);
     if (!validRunId(r.runId)) return null;
+    const name = r.name === undefined ? '' : normalizeCharacterName(r.name);
+    if (name === null) return null;
+    r.name = name || HEROES[r.hero].defaultName;
     if (raw.version === 1) {
       if (SPELLS[r.spell].price) return null;
       const cleared = r.phase === 'clear' || r.phase === 'victory' ? r.wave : r.wave - 1;

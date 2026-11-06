@@ -6,6 +6,7 @@ const paths: Record<string, string> = {
   dots:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   next:'<path d="M3 12h16m-6-6 6 6-6 6"/>',
   back:'<path d="M21 12H5m6-6-6 6 6 6"/>',
+  zoom:'<circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7.5 10h5M10 7.5v5"/>',
   close:'<path d="m6 6 12 12M18 6 6 18"/>',
   ember:'<path d="M11 22c-6-1-8-6-5-10 0 3 2 3 2 3C6 8 13 6 13 2c1 4 5 7 6 11 2 6-3 10-8 9Z"/><path d="M12 21c-3-2-1-5 1-7 0 2 4 4-1 7Z"/>',
   rime:'<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 5l3 3 3-3m-6 14 3-3 3 3"/>',

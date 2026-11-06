@@ -2,7 +2,7 @@
 
 Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guide, spells and encounters are in English. It is built for a portrait phone screen, with keyboard and mouse controls on desktop.
 
-- Four classes with different starting attributes and growth per level.
+- Four classes with different starting attributes and growth per level. Choose a character name when beginning or rename it under Armory → Character. Tap the avatar there to enlarge it.
 - Thirty-two waves, 1,024 encounters and 32 illustrated guardians.
 - A new illustrated creature joins the regular encounters every four waves, from Wickstalker in wave 4 to Glaivehorn Sentinel in wave 32. Earlier arrivals return in rotating palettes.
 - Automatic combat with separate clocks for the hero and enemy. Speed measures attacks per second.

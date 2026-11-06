@@ -3,8 +3,8 @@ import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, 
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import {
-  ELEMENT_NAMES, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
-  HEROES, HERO_IDS, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
+  CHARACTER_NAME_LIMIT, ELEMENT_NAMES, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
+  HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
 import { activeSeal, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
@@ -20,6 +20,8 @@ const number = new Intl.NumberFormat('en-US', {maximumFractionDigits: 1});
 const fmt = (x: number) => number.format(x);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const savedDate = new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'});
+const escapeHtml = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 const symbol = (text: string) => '<span aria-hidden="true">' + text + '</span>';
 let hero: HeroId = 'vanguard';
 let slot = '';
@@ -68,11 +70,16 @@ function mount(name: string, body: string): void {
     if (dialogOpener?.isConnected) dialogOpener.focus({preventScroll: true});
     dialogOpener = null;
   });
+  dialog.addEventListener('cancel', event => {
+    if (dialogKind !== 'portrait' && dialogKind !== 'rename') return;
+    event.preventDefault();
+    close();
+  });
   dialog.addEventListener('click', event => {
     if (event.target === dialog) {
       const rect = dialog.getBoundingClientRect();
       const {clientX: x, clientY: y} = event;
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) dialog.close();
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) close();
     }
   });
   app.querySelector<HTMLElement>('main')?.focus({preventScroll: true});
@@ -131,8 +138,8 @@ function slotLabel(data: Save | null): string {
   if (!data) return '<strong>Unreadable save</strong>';
   const r = data.run;
   const where = r.phase === 'victory' ? 'Oath fulfilled' : 'Wave ' + r.wave + ' · Encounter ' + r.step;
-  return `<strong>${HEROES[r.hero].name} <span>Lv. ${fmt(r.level)}</span></strong>
-    <small>${where}</small><small>${savedDate.format(data.updated)}</small>`;
+  return `<strong>${escapeHtml(r.name)}</strong>
+    <small>${HEROES[r.hero].name} · Lv. ${fmt(r.level)} · ${where}</small><small>${savedDate.format(data.updated)}</small>`;
 }
 function slotScreen(): void {
   const entries = listSlots();
@@ -163,7 +170,13 @@ function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLO
     if (battle) save();
   }
 }
-const close = () => find<HTMLDialogElement>('sheet').close();
+function close(): void {
+  if (dialogKind === 'portrait' || dialogKind === 'rename') {
+    const opener = dialogKind === 'portrait' ? 'view-portrait' : 'rename-character';
+    gearView();
+    find(opener).focus({preventScroll: true});
+  } else find<HTMLDialogElement>('sheet').close();
+}
 
 function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
@@ -294,7 +307,7 @@ function meter(id: string, value: number, max: number): void {
 function updateHud(): void {
   if (screen !== 'arena' || !battle) return;
   const r = battle.run, s = battle.player, foe = battle.foe;
-  find('identity').textContent = HEROES[r.hero].name + ' · LV ' + fmt(r.level);
+  find('identity').textContent = r.name + ' · LV ' + fmt(r.level);
   find('hp').textContent = fmt(Math.ceil(r.hp)) + ' / ' + fmt(s.hp);
   find('mp').textContent = fmt(Math.floor(r.mp + 1e-8)) + ' / ' + fmt(s.mp);
   find('gold').textContent = fmt(r.gold);
@@ -497,7 +510,11 @@ function gearView(): void {
   const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', shopOpen ? 'Shop' : 'Shop closed'], ['workshop', 'Workshop']];
   let body = '';
   if (gearTab === 'stats') {
-    body = `<div class="character-strip"><img src="${art(r.hero)}" alt=""><span><strong>${HEROES[r.hero].name}</strong><small>Lv. ${fmt(r.level)} · ${fmt(r.xp)} / ${fmt(xpGoal(r.level))} XP</small></span></div>
+    body = `<div class="character-strip">
+      <button class="portrait-trigger" id="view-portrait" data-action="portrait" aria-label="Enlarge ${HEROES[r.hero].name} portrait">
+        <img src="${art(r.hero)}" alt=""><span>${icon('zoom')}</span>
+      </button><span><strong>${escapeHtml(r.name)}</strong><small>${HEROES[r.hero].name} · Lv. ${fmt(r.level)}<br>${fmt(r.xp)} / ${fmt(xpGoal(r.level))} XP</small></span>
+      <button class="compact rename-character" id="rename-character" data-action="rename">Rename</button></div>
       <dl class="stat-grid">${Object.entries(STAT_NAMES).map(([key, name]) => `<div><dt>${name}</dt><dd>${statText(key as keyof Stats, s[key as keyof Stats])}</dd></div>`).join('')}</dl>
       <p class="sheet-foot">${fmt(r.kills)} foes slain · ${fmt(r.deaths)} falls · ${fmt(r.inventory.length)} gear owned</p><p class="sheet-foot">${fmt(r.essence)} Arcane Essence</p>`;
   } else if (gearTab === 'equip') {
@@ -532,6 +549,32 @@ function gearView(): void {
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
     `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">The Shop and Workshop open after a defeat, before you retry.</p>'}${body}`, shopOpen ? 'RECOVERY CAMP' : 'EQUIPMENT');
 }
+function portrait(): void {
+  const {hero} = current();
+  openDialog('portrait', escapeHtml(current().name), `
+    <figure class="portrait-large"><img src="${art(hero)}" alt="Portrait of the ${HEROES[hero].name}"></figure>
+    <button class="text-action" id="portrait-return" data-action="close">Back to Character</button>`, 'CHARACTER PORTRAIT');
+  find('portrait-return').focus({preventScroll: true});
+}
+
+function nameDialog(isNew: boolean): void {
+  const selected = isNew ? hero : current().hero;
+  const fallback = HEROES[selected].defaultName;
+  openDialog(isNew ? 'name' : 'rename', isNew ? 'Name your character' : 'Rename your character', `
+    <form id="character-name-form" class="character-name-form">
+      <label for="character-name">Character name</label>
+      <input type="text" id="character-name" value="${escapeHtml(isNew ? fallback : current().name)}"
+        maxlength="${CHARACTER_NAME_LIMIT}" autocomplete="off" spellcheck="false" dir="auto">
+      <p class="sheet-foot">Default name · ${fallback}</p>
+      <p id="name-status" class="update-status" role="status"></p>
+      <button class="primary wide" type="submit">${isNew ? 'Begin adventure' : 'Save name'} ${icon('next')}</button>
+      <button class="text-action" type="button" data-action="default-name">Use default name</button>
+    </form>`, HEROES[selected].name.toUpperCase());
+  const input = find<HTMLInputElement>('character-name');
+  input.focus({preventScroll: true});
+  input.select();
+}
+
 function elapsedLabel(seconds: number): string {
   const full = Math.floor(seconds);
   return Math.floor(full / 60) + 'm ' + String(full % 60).padStart(2, '0') + 's';
@@ -641,12 +684,39 @@ function importSave(): void {
 }
 function confirmDelete(id: string): void {
   const data = readSlot(id);
-  const name = data ? HEROES[data.run.hero].name + ' · Wave ' + data.run.wave : 'Unreadable save';
+  const name = data ? escapeHtml(data.run.name) + ' · Wave ' + data.run.wave : 'Unreadable save';
   openDialog('delete', 'Delete this save?', `<p class="guide">${name}. This removes the playable save from this device. Its achievements remain in the shared record.</p>
     <button class="secondary wide" data-action="delete-confirm" data-id="${id}">Delete save</button>
     <button class="text-action" data-action="close" autofocus>Keep save</button>
     <p class="update-status" id="delete-status" role="status"></p>`, 'THE ARCHIVE');
 }
+
+app.addEventListener('submit', event => {
+  if (!(event.target instanceof HTMLFormElement) || event.target.id !== 'character-name-form') return;
+  event.preventDefault();
+  const name = normalizeCharacterName(find<HTMLInputElement>('character-name').value);
+  if (name === null) {
+    find('name-status').textContent = 'Use up to ' + CHARACTER_NAME_LIMIT + ' characters and omit control characters.';
+    return;
+  }
+  if (dialogKind === 'name') {
+    const run = newRun(hero, name);
+    slot = run.runId;
+    startArena(run, true);
+  } else if (dialogKind === 'rename') {
+    const run = current();
+    const previous = run.name;
+    run.name = name || HEROES[run.hero].defaultName;
+    save();
+    if (!saved) {
+      run.name = previous;
+      find('name-status').textContent = 'This device could not save the new name.';
+      return;
+    }
+    updateHud();
+    close();
+  }
+});
 
 app.addEventListener('input', event => {
   const input = event.target;
@@ -713,10 +783,12 @@ app.addEventListener('click', event => {
       heroScreen();
       app.querySelector<HTMLElement>('button[data-id="' + hero + '"]')?.focus({preventScroll: true});
       break;
-    case 'start': {
-      const run = newRun(hero);
-      slot = run.runId;
-      startArena(run, true);
+    case 'start': nameDialog(true); break;
+    case 'rename': nameDialog(false); break;
+    case 'default-name': {
+      const input = find<HTMLInputElement>('character-name');
+      input.value = HEROES[dialogKind === 'name' ? hero : current().hero].defaultName;
+      input.focus();
       break;
     }
     case 'help': help(); break;
@@ -729,6 +801,7 @@ app.addEventListener('click', event => {
       shopTier = current().wave;
       gearView();
       break;
+    case 'portrait': portrait(); break;
     case 'gear-tab':
       gearTab = id!;
       gearView();

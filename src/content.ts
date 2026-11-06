@@ -9,31 +9,38 @@ export type HeroId = 'vanguard' | 'hexweaver' | 'nightblade' | 'oathkeeper';
 
 export const HEROES = {
   vanguard: {
-    name: 'Vanguard', role: 'The iron wall', color: '#e5ad6f',
+    name: 'Vanguard', defaultName: 'Aldric', role: 'The iron wall', color: '#e5ad6f',
     text: 'Heavy strikes and steel plate. Endures where others break.',
     base: { hp: 154, mp: 16, atk: 24, def: 17, mag: 10, res: 9, spd: 0.88, regen: 0.1 },
     gain: { hp: 17, mp: 0.85, atk: 3.5, def: 2.5, mag: 1.55, res: 1.55, spd: 0.005, regen: 0.10 }
   },
   hexweaver: {
-    name: 'Hexweaver', role: 'The glass flame', color: '#c2a0f2',
+    name: 'Hexweaver', defaultName: 'Seris', role: 'The glass flame', color: '#c2a0f2',
     text: 'Crushing spells and deep mana reserves. Vulnerable to steel.',
     base: { hp: 104, mp: 33, atk: 13, def: 8, mag: 30, res: 17, spd: 0.98, regen: 0.1 },
     gain: { hp: 11, mp: 1.6, atk: 1.8, def: 1.3, mag: 4.1, res: 2.5, spd: 0.006, regen: 0.17 }
   },
   nightblade: {
-    name: 'Nightblade', role: 'The swift edge', color: '#a4d5a5',
+    name: 'Nightblade', defaultName: 'Nyx', role: 'The swift edge', color: '#a4d5a5',
     text: 'Strikes faster than any other oathbound. Wears light armor.',
     base: { hp: 118, mp: 21, atk: 18, def: 10, mag: 15, res: 11, spd: 1.52, regen: 0.1 },
     gain: { hp: 13, mp: 1, atk: 2.6, def: 1.55, mag: 2.2, res: 1.6, spd: 0.011, regen: 0.12 }
   },
   oathkeeper: {
-    name: 'Oathkeeper', role: 'The last light', color: '#91d6d5',
+    name: 'Oathkeeper', defaultName: 'Ilyan', role: 'The last light', color: '#91d6d5',
     text: 'Wards off sorcery and excels at healing. Fights a war of attrition.',
     base: { hp: 134, mp: 27, atk: 16, def: 13, mag: 20, res: 23, spd: 0.96, regen: 0.1 },
     gain: { hp: 15, mp: 1.35, atk: 2.3, def: 1.9, mag: 2.8, res: 3.05, spd: 0.006, regen: 0.15 }
   }
-} satisfies Record<HeroId, {name: string; role: string; color: string; text: string; base: Stats; gain: Stats}>;
+} satisfies Record<HeroId, {name: string; defaultName: string; role: string; color: string; text: string; base: Stats; gain: Stats}>;
 export const HERO_IDS = Object.keys(HEROES) as HeroId[];
+export const CHARACTER_NAME_LIMIT = 24;
+export function normalizeCharacterName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim().normalize('NFC');
+  return name.length <= CHARACTER_NAME_LIMIT && !/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/.test(name) ? name : null;
+}
+
 
 export type Strike = 'steel' | 'ember' | 'rime' | 'storm';
 export type SpellId = Exclude<Strike, 'steel'> | 'mend' | 'aegis' | 'verdict';

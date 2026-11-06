@@ -568,3 +568,22 @@ test('Eight new creatures debut every four waves and return in different palette
     assert.ok(new Set(entries.map(entry => entry.hue)).size > 1);
   });
 });
+
+test('Names are optional in older files and can be changed without changing the run identity', () => {
+  for (const hero of HERO_IDS) {
+    const run = newRun(hero);
+    const old = {...run};
+    delete old.name;
+    const restored = decode(JSON.stringify({version:6, updated:1, run:old})).run;
+    assert.equal(restored.name, run.name);
+    assert.equal(restored.runId, run.runId);
+    assert.deepEqual(decode(serialize(restored)).run, run);
+  }
+  const run = newRun('nightblade', '  E\u0301lan & Ash  ');
+  assert.equal(run.name, 'Élan & Ash');
+  const id = run.runId;
+  run.name = 'Sable';
+  const restored = decode(serialize(run)).run;
+  assert.equal(restored.name, 'Sable');
+  assert.equal(restored.runId, id);
+});
