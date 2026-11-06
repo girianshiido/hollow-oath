@@ -255,3 +255,4 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 .shop-note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
 .auto-equip { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; }
 .auto-equip input { accent-color: var(--gold); }
+.gear-tabs button:disabled { color: var(--muted); opacity: .8; }

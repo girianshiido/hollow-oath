@@ -168,7 +168,7 @@ function startArena(run: Run): void {
   mount('arena', `<main class="frame arena" tabindex="-1">
     <div id="world" class="world" aria-hidden="true"></div>
     <header class="battle-head">
-      <button class="round" id="armory-button" data-action="gear" aria-label="Equipment and shop" title="Equipment and shop">${icon('bag')}</button>
+      <button class="round" id="armory-button" data-action="gear" aria-label="Armory" title="Character and equipment">${icon('bag')}</button>
       <div class="wave-title"><span class="kicker" id="wave-index"></span><strong id="wave-name"></strong></div>
       <button class="round" data-action="options" aria-label="Options" title="Options">${icon('dots')}</button>
     </header>
@@ -450,7 +450,7 @@ function gearView(): void {
   const r = current(), s = stats(r);
   const shopOpen = canShop(r);
   if (gearTab === 'shop' && !shopOpen) gearTab = 'stats';
-  const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', 'Shop']];
+  const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', shopOpen ? 'Shop' : 'Shop closed']];
   let body = '';
   if (gearTab === 'stats') {
     body = `<div class="character-strip"><img src="${art(r.hero)}" alt=""><span><strong>${HEROES[r.hero].name}</strong><small>Lv. ${fmt(r.level)} · ${fmt(r.xp)} / ${fmt(xpGoal(r.level))} XP</small></span></div>
@@ -475,7 +475,7 @@ function gearView(): void {
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
-    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${id === 'shop' && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Shop opens at encounters 9–10, 17–18 and 25–26, and after a defeat.</p>'}${body}`, 'TRAVELLER’S CAMP');
+    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${id === 'shop' && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Buy gear at encounters 9–10, 17–18 and 25–26, or after a defeat.</p>'}${body}`, shopOpen ? 'TRAVELLER’S CAMP' : 'EQUIPMENT');
 }
 function options(): void {
   const sound = audioSettings();
