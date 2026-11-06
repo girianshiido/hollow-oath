@@ -1,3 +1,4 @@
+import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import {
@@ -44,6 +45,7 @@ let paceHint = '';
 const current = (): Run => battle!.run;
 
 function mount(name: string, body: string): void {
+  stopSounds();
   screen = name;
   effects?.dispose();
   effects = undefined;
@@ -134,6 +136,7 @@ function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLO
     <button class="round" data-action="close" aria-label="Close">${icon('close')}</button></header>${body}</div>`;
   if (!dialog.open) {
     dialogOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    stopSounds();
     dialog.showModal();
     if (battle) save();
   }
@@ -326,21 +329,25 @@ function battleEvent(event: BattleEvent): void {
   dirty = true;
   switch (event.type) {
     case 'hit':
+      void playSound(event.strike);
       if (!reduced.matches) effects?.add(event.strike);
       pop('−' + fmt(event.damage), strikeColor(event.strike));
       animate('hit');
       break;
     case 'hurt':
+      void playSound('hurt');
       if (!reduced.matches) effects?.add('hurt');
       pop('−' + fmt(event.damage) + ' HP', event.arcane ? '#e6adff' : '#ff9584', 'incoming');
       animate('lunging');
       break;
     case 'seal':
+      void playSound('seal');
       if (!reduced.matches) effects?.add('seal');
       pop('SEAL BROKEN', '#ffe2a8', 'seal-float');
       paceHint = '';
       break;
     case 'block': {
+      void playSound('block');
       const seal = event.strike;
       paceHint = seal !== 'steel' && SPELLS[seal].level > current().level ?
         'Unlock ' + SPELLS[seal].name + ' at Lv. ' + SPELLS[seal].level : SEALS[seal].hint + ' to break the seal';
@@ -348,6 +355,7 @@ function battleEvent(event: BattleEvent): void {
       break;
     }
     case 'heal':
+      void playSound('heal');
       if (!reduced.matches) effects?.add('heal');
       pop('+' + fmt(event.amount) + ' HP', '#a4ffc0', 'incoming');
       break;
@@ -355,11 +363,13 @@ function battleEvent(event: BattleEvent): void {
       paceHint = 'Low MP · Switched to steel';
       break;
     case 'level':
+      void playSound('reward');
       toast('Level ' + fmt(event.level) + (event.spells.length ? ' · Learned ' + event.spells.map(id => SPELLS[id].name).join(', ') : ' · Stats increased'));
       break;
     case 'kill':
       animate('slain');
       paceHint = '';
+      if (event.loot || battle?.foe.boss) void playSound('reward');
       if (event.loot) toast('Relic found · ' + gearName(event.loot));
       rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot) : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
@@ -375,6 +385,7 @@ function battleEvent(event: BattleEvent): void {
       if (!reduced.matches) effects?.add('seal');
       break;
     case 'fallen':
+      void playSound('fallen');
       save();
       break;
   }
@@ -457,8 +468,16 @@ function gearView(): void {
     `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}">${name}</button>`).join('')}</div>${body}`, 'TRAVELLER’S CAMP');
 }
 function options(): void {
+  const sound = audioSettings();
   openDialog('options', 'Game paused', `<div class="options-list">
     <button class="primary wide" data-action="close">Resume ${icon('next')}</button>
+    <fieldset class="audio-settings">
+      <legend>Sound effects</legend>
+      <label class="audio-mute"><input type="checkbox" id="mute-sound" ${sound.muted ? 'checked' : ''}> Mute sound</label>
+      <div class="audio-volume"><label for="sound-volume">Volume</label><output id="volume-value" for="sound-volume">${sound.volume}%</output>
+        <input type="range" id="sound-volume" min="0" max="100" value="${sound.volume}" ${sound.muted ? 'disabled' : ''}></div>
+      <button class="compact" id="preview-sound" data-action="sound-preview" ${sound.muted || !sound.volume ? 'disabled' : ''}>Test sound</button>
+    </fieldset>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
     <button class="secondary wide" id="update-game" data-action="update" hidden><span>Check for updates</span>${icon('next')}</button>
     <p id="update-status" class="update-status" role="status"></p>
@@ -515,6 +534,19 @@ function finishImport(): void {
   toast('Backup restored.');
 }
 
+app.addEventListener('input', event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  if (input.id !== 'mute-sound' && input.id !== 'sound-volume') return;
+  const muted = find<HTMLInputElement>('mute-sound').checked;
+  const slider = find<HTMLInputElement>('sound-volume');
+  const volume = slider.valueAsNumber;
+  configureAudio(muted, volume);
+  unlockAudio();
+  slider.disabled = muted;
+  find('volume-value').textContent = volume + '%';
+  find<HTMLButtonElement>('preview-sound').disabled = muted || volume === 0;
+});
 app.addEventListener('change', event => {
   const input = event.target;
   if (!(input instanceof HTMLSelectElement) || !battle) return;
@@ -537,6 +569,7 @@ app.addEventListener('change', event => {
 app.addEventListener('click', event => {
   const target = (event.target as Element).closest<HTMLButtonElement>('button[data-action]');
   if (!target || target.disabled) return;
+  unlockAudio();
   const {action, id} = target.dataset;
   switch (action) {
     case 'title': title(); break;
@@ -605,6 +638,7 @@ app.addEventListener('click', event => {
       lastFrame = 0;
       break;
     case 'exit': save(); title(); break;
+    case 'sound-preview': void playSound('steel', true); break;
     case 'update': void updateGame(() => { save(); return saved; }); break;
     case 'export': exportSave(); break;
     case 'import': importSave(); break;
@@ -613,12 +647,14 @@ app.addEventListener('click', event => {
 
 window.addEventListener('keydown', event => {
   if (event.repeat || screen !== 'arena' || dialogKind || event.altKey || event.ctrlKey || event.metaKey) return;
+  unlockAudio();
   if (event.key === '1') mode('steel');
   if (event.key === '2') mode('magic');
   if (event.key === '3') showSpells();
   if (event.key === 'Escape') options();
 });
 document.addEventListener('visibilitychange', () => {
+  backgroundAudio();
   lastFrame = 0;
   if (document.hidden && battle) save();
 });

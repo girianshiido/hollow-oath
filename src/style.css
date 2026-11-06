@@ -243,3 +243,11 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 }
 .update-status { color: var(--gold); font-size: 12px; line-height: 1.4; margin: 1px 0 4px; }
 .update-status:empty { display: none; }
+.audio-settings { display: grid; gap: 5px; border: 1px solid var(--line); margin: 5px 0; padding: 6px 10px 9px; min-width: 0; }
+.audio-settings legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
+.audio-mute { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.audio-settings input { accent-color: var(--gold); }
+.audio-volume { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px; font-size: 12px; }
+.audio-volume output { color: var(--gold); font-variant-numeric: tabular-nums; }
+.audio-volume input { grid-column: 1 / -1; width: 100%; margin: 0; min-height: 33px; }
+.audio-settings button { justify-self: start; }
