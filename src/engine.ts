@@ -1,5 +1,5 @@
 import {
-  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, SPELLS, WAVE_COUNT, xpGoal,
+  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, MAX_SPELL_RANK, spellCost, SPELLS, WAVE_COUNT, xpGoal,
   type Enemy, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
 } from './content.ts';
 
@@ -8,15 +8,17 @@ export interface Run {
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
+  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; castRank: number; ward: number;
   phase: Phase; wait: number; inventory: Gear[]; equipped: Partial<Record<GearSlot, string>>;
 }
 export type BattleEvent =
-  | {type: 'hit'; strike: Strike; damage: number}
+  | {type: 'hit'; strike: Strike; damage: number; affinity?: 'resisted' | 'immune' | 'weak'}
   | {type: 'hurt'; damage: number; arcane: boolean}
   | {type: 'seal' | 'block'; strike: Strike}
   | {type: 'heal'; amount: number}
+  | {type: 'ward'; amount: number}
   | {type: 'empty' | 'fallen' | 'enter' | 'armed'}
-  | {type: 'kill'; xp: number; gold: number; loot?: Gear}
+  | {type: 'kill'; xp: number; gold: number; essence: number; loot?: Gear}
   | {type: 'level'; level: number; spells: SpellId[]};
 
 export function stats(run: Run): Stats {
@@ -24,7 +26,7 @@ export function stats(run: Run): Stats {
   const level = run.level - 1;
   const values = { ...hero.base };
   const keys = Object.keys(values) as (keyof Stats)[];
-  for (const key of keys) values[key] += hero.gain[key] * level;
+  for (const key of keys) values[key] += hero.gain[key] * (key === 'regen' ? 16 * Math.log1p(level / 16) : level);
   for (const gear of run.inventory) {
     if (run.equipped[gear.slot] !== gearId(gear)) continue;
     const bonus = gearBonus(gear);
@@ -54,6 +56,7 @@ export function newRun(hero: HeroId): Run {
     hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
+    essence: 0, essenceClaims: [], spellRanks: {}, castRank: 1, ward: 0,
     phase: 'fight', wait: 0, inventory: [], equipped: {}
   };
   openEncounter(run);
@@ -69,6 +72,7 @@ export function resumeWave(run: Run): void {
   const values = stats(run);
   run.hp = values.hp;
   run.mp = values.mp;
+  run.ward = 0;
   run.phase = 'fight';
   openEncounter(run);
 }
@@ -77,6 +81,28 @@ export const CAMP_STARTS = [9, 17, 25] as const;
 export function canShop(run: Run): boolean {
   return run.phase === 'fallen' ||
     (run.phase === 'fight' && CAMP_STARTS.some(step => run.step === step || run.step === step + 1));
+}
+
+export function knownRank(run: Run, id: SpellId): number {
+  const spell = SPELLS[id];
+  return run.level < spell.level ? 0 : (run.spellRanks[id] ?? (spell.price ? 0 : 1));
+}
+export function workshopPrice(run: Run, id: SpellId): number | undefined {
+  const rank = knownRank(run, id);
+  if (run.level < SPELLS[id].level || rank >= MAX_SPELL_RANK) return undefined;
+  return rank === 0 ? SPELLS[id].price : rank === 1 ? 4 : 12;
+}
+export function buySpell(run: Run, id: SpellId): boolean {
+  const price = workshopPrice(run, id);
+  if (!canShop(run) || price === undefined || run.essence < price) return false;
+  run.essence -= price;
+  run.spellRanks[id] = knownRank(run, id) + 1;
+  return true;
+}
+
+export function availableEssence(run: Run, foe: Enemy): number {
+  const claim = (run.wave - 1) * ENCOUNTER_COUNT + run.step;
+  return run.essenceClaims.includes(claim) ? 0 : foe.essence;
 }
 
 export function buyGear(run: Run, gear: Gear): boolean {
@@ -160,9 +186,11 @@ export class Battle {
       if (run.enemyGauge >= 1 - epsilon) {
         run.enemyGauge = 0;
         const defense = this.foe.arcane ? this.player.res : this.player.def;
-        const damage = impact(this.foe.atk, defense);
+        const raw = impact(this.foe.atk, defense);
+        const damage = Math.max(0, raw - run.ward);
+        run.ward = 0;
         run.hp = Math.max(0, run.hp - damage);
-        this.send({type: 'hurt', damage, arcane: this.foe.arcane});
+        this.send(damage ? {type: 'hurt', damage, arcane: this.foe.arcane} : {type: 'ward', amount: raw});
         if (!run.hp) {
           run.phase = 'fallen';
           run.deaths++;
@@ -181,24 +209,34 @@ export class Battle {
   private playerTurn(): void {
     const run = this.run;
     const spell = SPELLS[run.spell];
+    const cost = spellCost(run.spell, run.castRank);
+    const boost = 1 + (run.castRank - 1) * 0.24;
     let strike: Strike = 'steel';
-    if (run.mode === 'magic' && (run.spell !== 'mend' || this.player.hp - run.hp >= Math.min(this.player.hp * 0.2, this.healPower()))) {
-      if (run.mp + 1e-8 < spell.cost) {
+    const shouldCast = run.spell === 'mend'
+      ? this.player.hp - run.hp >= Math.min(this.player.hp * 0.2, this.healPower())
+      : run.spell !== 'aegis' || run.ward === 0;
+    if (run.mode === 'magic' && shouldCast) {
+      if (run.mp + 1e-8 < cost) {
         run.mode = 'steel';
         this.send({type: 'empty'});
       } else {
-        run.mp = Math.max(0, run.mp - spell.cost);
-        if (run.mp + 1e-8 < spell.cost) {
+        run.mp = Math.max(0, run.mp - cost);
+        if (run.mp + 1e-8 < cost) {
           run.mode = 'steel';
           this.send({type: 'empty'});
         }
         if (run.spell === 'mend') {
-          const amount = Math.min(this.player.hp - run.hp, this.healPower());
+          const amount = Math.min(this.player.hp - run.hp, Math.round(this.healPower() * boost));
           run.hp += amount;
           this.send({type: 'heal', amount: Math.round(amount)});
           return;
         }
-        strike = run.spell;
+        if (run.spell === 'aegis') {
+          run.ward = Math.round((this.player.hp * 0.06 + this.player.mag * 0.65) * boost);
+          this.send({type: 'ward', amount: run.ward});
+          return;
+        }
+        strike = spell.strike!;
       }
     }
     const seal = activeSeal(run, this.foe);
@@ -210,13 +248,19 @@ export class Battle {
       run.broken++;
       this.send({type: 'seal', strike: seal});
     }
-    const damage = strike === 'steel' ? impact(this.player.atk, this.foe.def) :
-      impact(this.player.mag * (strike === 'ember' ? 1.36 : strike === 'rime' ? 1.1 : 1.62), this.foe.res * (strike === 'storm' ? 0.38 : 1));
-    if (strike === 'rime') run.enemyGauge = Math.max(0, run.enemyGauge - 0.23);
+    const power = strike === 'ember' ? 1.36 : strike === 'rime' ? 1.18 : run.spell === 'verdict' ? 2.45 : 1.62;
+    const baseDamage = strike === 'steel' ? impact(this.player.atk, this.foe.def) :
+      impact(this.player.mag * power * boost, this.foe.res * (strike === 'storm' ? 0.38 : 1));
+    const trait = this.foe.affinity;
+    const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
+      trait?.weak === strike ? 'weak' : undefined;
+    const damage = affinity === 'immune' ? 0 : Math.max(1, Math.round(baseDamage *
+      (affinity === 'resisted' ? 0.30 : affinity === 'weak' ? 1.5 : 1)));
+    if (strike === 'rime' && damage > 0) run.enemyGauge = Math.max(0, run.enemyGauge - 0.23);
     const nextFloor = sealFloor(this.foe, run.broken);
     const actual = Math.min(Math.max(0, run.foeHp - nextFloor), damage);
     run.foeHp -= actual;
-    this.send({type: 'hit', strike, damage: actual});
+    this.send({type: 'hit', strike, damage: actual, affinity});
     if (run.foeHp === 0) this.win();
     else if (run.foeHp === nextFloor) this.send({type: 'armed'});
   }
@@ -236,7 +280,7 @@ export class Battle {
       this.player = stats(run);
       run.hp = Math.min(this.player.hp, run.hp + this.player.hp - old.hp + this.player.hp * 0.105 * (run.level - before));
       run.mp = Math.min(this.player.mp, run.mp + this.player.mp - old.mp + this.player.mp * 0.28 * (run.level - before));
-      const spells = (Object.keys(SPELLS) as SpellId[]).filter(id => SPELLS[id].level > before && SPELLS[id].level <= run.level);
+      const spells = (Object.keys(SPELLS) as SpellId[]).filter(id => !SPELLS[id].price && SPELLS[id].level > before && SPELLS[id].level <= run.level);
       this.send({type: 'level', level: run.level, spells});
     }
     let loot: Gear | undefined;
@@ -253,6 +297,11 @@ export class Battle {
       run.wait = run.phase === 'clear' ? 0.95 : 0;
     }
     else run.wait = 0.72;
-    this.send({type: 'kill', xp: foe.xp, gold: foe.gold, loot});
+    const essence = availableEssence(run, foe);
+    if (essence) {
+      run.essence += essence;
+      run.essenceClaims.push((run.wave - 1) * ENCOUNTER_COUNT + run.step);
+    }
+    this.send({type: 'kill', xp: foe.xp, gold: foe.gold, essence, loot});
   }
 }

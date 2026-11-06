@@ -2,11 +2,11 @@ import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, 
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import {
-  encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
-  HEROES, HERO_IDS, SEALS, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
+  ELEMENT_NAMES, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
+  HEROES, HERO_IDS, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, Battle, buyGear, CAMP_STARTS, canShop, equipGear, newRun, resumeWave, stats, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, availableEssence, Battle, buyGear, buySpell, CAMP_STARTS, canShop, equipGear, knownRank, newRun, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import { decode, readSlot, serialize, SLOT_COUNT, writeSlot, type Save } from './saves.ts';
@@ -151,9 +151,9 @@ function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
     <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense.</p>
     <p><strong>Sword and grimoire.</strong> Tap to switch. Hold the grimoire or tap its caret to choose a spell. On a keyboard, use <kbd>1</kbd> for steel, <kbd>2</kbd> for magic and <kbd>3</kbd> for the spell list. When mana runs low, steel takes over. Tap the grimoire again once you have enough MP.</p>
-    <p><strong>Seals.</strong> Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Some bosses raise a new seal as their HP falls. Save your mana for the right strike.</p>
+    <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Some bosses raise a new seal as their HP falls. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
-    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The shop opens at encounters 9–10, 17–18 and 25–26, and after a defeat before you retry. Each wave opens a new gear rank. Some bosses drop relics. The next wave begins with full HP and MP.</p>
+    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The shop and Workshop open at encounters 9–10, 17–18 and 25–26, and after a defeat before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their rank. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
 }
@@ -182,6 +182,7 @@ function startArena(run: Run): void {
       <span id="enemy-kind" class="kicker"></span><h1 id="enemy-name"></h1>
       <div class="enemy-meter meter" id="enemy-meter" role="progressbar" aria-label="Enemy HP"><i id="enemy-fill"></i></div>
       <div id="seal" class="seal" role="status"></div>
+      <p id="affinity" class="affinity"></p>
     </section>
     <div class="battle-art" id="battle-art">
       <div class="sigil" aria-hidden="true">${icon('mark')}</div>
@@ -247,7 +248,11 @@ function displayEncounter(): void {
   find('step').textContent = String(r.step).padStart(2, '0');
   find('pips').innerHTML = Array.from({length: 32}, (_, i) => `<i class="${i + 1 < r.step ? 'done' : i + 1 === r.step ? 'now' : ''}"></i>`).join('');
   find('enemy-name').textContent = foe.name;
-  find('enemy-kind').textContent = foe.boss ? 'WAVE GUARDIAN' : (foe.seals.length ? 'SEALED FOE' : foe.arcane ? 'ARCANE FOE' : 'ENCOUNTER');
+  const trait = foe.affinity;
+  find('affinity').textContent = trait
+    ? (trait.immune ? 'Immune to ' : 'Resists ') + ELEMENT_NAMES[trait.resists] + ' · Weak to ' + ELEMENT_NAMES[trait.weak]
+    : '';
+  find('enemy-kind').textContent = foe.boss ? 'WAVE GUARDIAN' : (availableEssence(r, foe) ? 'ESSENCE-BEARER' : foe.seals.length ? 'SEALED FOE' : foe.arcane ? 'ARCANE FOE' : 'ENCOUNTER');
   find('enemy-kind').classList.toggle('boss', foe.boss);
   const img = find<HTMLImageElement>('enemy');
   img.src = art(foe.art);
@@ -281,7 +286,7 @@ function updateHud(): void {
   find('steel').setAttribute('aria-pressed', String(r.mode === 'steel'));
   find('book').setAttribute('aria-pressed', String(r.mode === 'magic'));
   find('book').style.setProperty('--spell', SPELLS[r.spell].color);
-  find('selected-spell').textContent = SPELLS[r.spell].name;
+  find('selected-spell').textContent = SPELLS[r.spell].name + (r.castRank > 1 ? ' ' + ROMAN[r.castRank - 1] : '');
   const seal = r.phase === 'fight' ? activeSeal(r, foe) : undefined;
   const sealKey = seal ? seal + ':' + r.broken : '';
   if (sealKey !== displaySeal) {
@@ -296,7 +301,7 @@ function updateHud(): void {
   }
   const atCamp = r.phase === 'fight' && canShop(r);
   find('armory-button').classList.toggle('camp-open', atCamp);
-  find('combat-line').textContent = paceHint || (atCamp ? 'Camp nearby · Shop open' : rewardLine) || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + SPELLS[r.spell].cost + ' MP per cast');
+  find('combat-line').textContent = paceHint || (atCamp ? 'Camp nearby · Shop & Workshop open' : rewardLine) || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + spellCost(r.spell, r.castRank) + ' MP per cast');
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
@@ -335,9 +340,15 @@ function battleEvent(event: BattleEvent): void {
   dirty = true;
   switch (event.type) {
     case 'hit':
+      if (event.affinity === 'immune') {
+        void playSound('block');
+        pop('IMMUNE', '#d2c9bb', 'seal-float');
+        break;
+      }
       void playSound(event.strike);
       if (!reduced.matches) effects?.add(event.strike);
-      pop('−' + fmt(event.damage), strikeColor(event.strike));
+      pop('−' + fmt(event.damage) + (event.affinity === 'weak' ? '!' : ''), strikeColor(event.strike));
+      if (event.affinity === 'resisted') pop('RESISTED', '#d2c9bb', 'seal-float');
       animate('hit');
       break;
     case 'hurt':
@@ -365,6 +376,11 @@ function battleEvent(event: BattleEvent): void {
       if (!reduced.matches) effects?.add('heal');
       pop('+' + fmt(event.amount) + ' HP', '#a4ffc0', 'incoming');
       break;
+    case 'ward':
+      void playSound('heal');
+      if (!reduced.matches) effects?.add('heal');
+      pop('WARD ' + fmt(event.amount), '#a4ffc0', 'incoming');
+      break;
     case 'empty':
       paceHint = 'Low MP · Switched to steel';
       break;
@@ -375,9 +391,10 @@ function battleEvent(event: BattleEvent): void {
     case 'kill':
       animate('slain');
       paceHint = '';
-      if (event.loot || battle?.foe.boss) void playSound('reward');
+      if (event.essence || event.loot || battle?.foe.boss) void playSound('reward');
+      if (event.essence && !event.loot) toast('+' + event.essence + ' Arcane Essence');
       if (event.loot) toast('Relic found · ' + gearName(event.loot));
-      rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot) : '');
+      rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
       save();
       break;
@@ -385,7 +402,7 @@ function battleEvent(event: BattleEvent): void {
       rewardLine = '';
       paceHint = '';
       displayEncounter();
-      if (CAMP_STARTS.some(step => current().step === step)) toast('Camp nearby · Shop open in the Armory');
+      if (CAMP_STARTS.some(step => current().step === step)) toast('Camp nearby · Shop & Workshop open in the Armory');
       save();
       break;
     case 'armed':
@@ -397,22 +414,28 @@ function battleEvent(event: BattleEvent): void {
       break;
   }
 }
+const ROMAN = ['I', 'II', 'III'] as const;
 function showSpells(): void {
   if (!battle || current().phase !== 'fight') return;
   const r = current();
   openDialog('spells', 'The Grimoire', `<div class="sheet-caption"><span>${fmt(Math.floor(r.mp))} / ${fmt(battle.player.mp)} MP</span><span>CHOOSE A SPELL</span></div>
     <div class="spell-list">${SPELL_IDS.map(id => {
-      const s = SPELLS[id], locked = s.level > r.level;
-      return `<button class="spell-row" data-action="spell" data-id="${id}" ${locked ? 'disabled' : ''} style="--spell:${s.color}">
-        <span class="spell-symbol">${icon(id)}</span><span><strong>${s.name}</strong><small>${s.text}</small></span>
-        <span class="spell-cost">${locked ? icon('lock') + ' LV ' + s.level : s.cost + ' MP'}</span></button>`;
+      const s = SPELLS[id], rank = knownRank(r, id);
+      const selected = r.spell === id ? r.castRank : 1;
+      return `<div class="prepared-spell">
+        <button class="spell-row" data-action="spell" data-id="${id}" ${!rank ? 'disabled' : ''} style="--spell:${s.color}">
+          <span class="spell-symbol">${icon(id)}</span><span><strong>${s.name}</strong><small>${s.text}</small></span>
+          <span class="spell-cost">${!rank ? icon('lock') + (s.level > r.level ? ' LV ' + s.level : ' Workshop') : rank === 1 ? spellCost(id, 1) + ' MP' : ''}</span></button>
+        ${rank > 1 ? `<label class="cast-rank">Cast at <select id="cast-${id}" aria-label="${s.name} casting rank">${Array.from({length: rank}, (_, i) =>
+          `<option value="${i + 1}" ${selected === i + 1 ? 'selected' : ''}>${ROMAN[i]} · ${spellCost(id, i + 1)} MP</option>`).join('')}</select></label>` : ''}
+      </div>`;
     }).join('')}</div><p class="sheet-foot">Choose a spell to prepare and switch to magic. Combat pauses while this book is open.</p>`, 'ARCANE ARTS');
 }
 function mode(value: 'steel' | 'magic'): void {
   if (!battle || current().phase !== 'fight') return;
   const r = current();
-  if (value === 'magic' && r.mp + 1e-8 < SPELLS[r.spell].cost) {
-    paceHint = 'Need ' + SPELLS[r.spell].cost + ' MP for ' + SPELLS[r.spell].name;
+  if (value === 'magic' && r.mp + 1e-8 < spellCost(r.spell, r.castRank)) {
+    paceHint = 'Need ' + spellCost(r.spell, r.castRank) + ' MP for ' + SPELLS[r.spell].name;
     r.mode = 'steel';
   } else {
     r.mode = value;
@@ -449,13 +472,13 @@ function bonusText(gear: Gear): string {
 function gearView(): void {
   const r = current(), s = stats(r);
   const shopOpen = canShop(r);
-  if (gearTab === 'shop' && !shopOpen) gearTab = 'stats';
-  const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', shopOpen ? 'Shop' : 'Shop closed']];
+  if ((gearTab === 'shop' || gearTab === 'workshop') && !shopOpen) gearTab = 'stats';
+  const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', shopOpen ? 'Shop' : 'Shop closed'], ['workshop', 'Workshop']];
   let body = '';
   if (gearTab === 'stats') {
     body = `<div class="character-strip"><img src="${art(r.hero)}" alt=""><span><strong>${HEROES[r.hero].name}</strong><small>Lv. ${fmt(r.level)} · ${fmt(r.xp)} / ${fmt(xpGoal(r.level))} XP</small></span></div>
       <dl class="stat-grid">${Object.entries(STAT_NAMES).map(([key, name]) => `<div><dt>${name}</dt><dd>${statText(key as keyof Stats, s[key as keyof Stats])}</dd></div>`).join('')}</dl>
-      <p class="sheet-foot">${fmt(r.kills)} foes slain · ${fmt(r.deaths)} falls · ${fmt(r.inventory.length)} gear owned</p>`;
+      <p class="sheet-foot">${fmt(r.kills)} foes slain · ${fmt(r.deaths)} falls · ${fmt(r.inventory.length)} gear owned</p><p class="sheet-foot">${fmt(r.essence)} Arcane Essence</p>`;
   } else if (gearTab === 'equip') {
     body = `<div class="gear-list">${GEAR_SLOTS.map(g => {
       const items = r.inventory.filter(item => item.slot === g).sort((a, b) => b.tier - a.tier || Number(b.relic) - Number(a.relic));
@@ -463,6 +486,17 @@ function gearView(): void {
       return `<label class="gear-row"><span><strong>${GEAR_NAMES[g]}</strong><small>${equipped ? bonusText(equipped) : 'No bonuses equipped'}</small></span>
         <select data-equip="${g}" aria-label="${GEAR_NAMES[g]}"><option value="">Unequipped</option>${items.map(item => `<option value="${gearId(item)}" ${item === equipped ? 'selected' : ''}>${gearName(item)} · Rank ${item.tier}</option>`).join('')}</select></label>`;
     }).join('')}</div>`;
+  } else if (gearTab === 'workshop') {
+    body = `<div class="sheet-caption"><span>ARCANE WORKSHOP</span><span class="coin">◆ ${fmt(r.essence)} Essence</span></div>
+      <div class="gear-list">${SPELL_IDS.map(id => {
+        const s = SPELLS[id], rank = knownRank(r, id), price = workshopPrice(r, id);
+        const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? 'Max rank' : '◆ ' + price;
+        const action = (rank ? 'Upgrade ' : 'Learn ') + s.name;
+        return `<div class="gear-row"><span><strong>${s.name}${rank ? ' · ' + ROMAN[rank - 1] : ''}</strong>
+          <small>${s.text}</small>
+          ${price === undefined ? '' : `<small>${rank ? 'Next rank · ' : 'Learn · '}${spellCost(id, rank + 1)} MP per cast</small>`}</span>
+          <button class="compact" data-action="buy-spell" data-id="${id}" ${price === undefined || r.essence < price ? 'disabled' : ''} aria-label="${price === undefined ? status : action + ' for ' + price + ' Arcane Essence'}">${status}</button></div>`;
+      }).join('')}</div><p class="sheet-foot">Higher ranks cost more MP. Choose any learned rank in the Grimoire. Marked foes and guardians yield Essence once per file.</p>`;
   } else {
     body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
       <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
@@ -475,7 +509,7 @@ function gearView(): void {
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
-    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${id === 'shop' && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Buy gear at encounters 9–10, 17–18 and 25–26, or after a defeat.</p>'}${body}`, shopOpen ? 'TRAVELLER’S CAMP' : 'EQUIPMENT');
+    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Shop and Workshop open at encounters 9–10, 17–18 and 25–26, or after a defeat.</p>'}${body}`, shopOpen ? 'TRAVELLER’S CAMP' : 'EQUIPMENT');
 }
 function options(): void {
   const sound = audioSettings();
@@ -621,6 +655,15 @@ app.addEventListener('click', event => {
       gearView();
       app.querySelector<HTMLElement>('button[data-action="gear-tab"][data-id="' + gearTab + '"]')?.focus();
       break;
+    case 'buy-spell': {
+      const spell = id as SpellId;
+      if (buySpell(current(), spell)) {
+        save();
+        gearView();
+        toast(SPELLS[spell].name + ' · ' + ROMAN[knownRank(current(), spell) - 1]);
+      }
+      break;
+    }
     case 'buy': {
       const gear = {slot: id as GearSlot, tier: shopTier, relic: false};
       if (buyGear(current(), gear)) {
@@ -643,8 +686,10 @@ app.addEventListener('click', event => {
     case 'spells': showSpells(); break;
     case 'spell': {
       const spell = id as SpellId;
-      if (SPELLS[spell].level > current().level) break;
+      const rank = Number(find<HTMLSelectElement>('cast-' + spell)?.value ?? 1);
+      if (rank > knownRank(current(), spell)) break;
       current().spell = spell;
+      current().castRank = rank;
       mode('magic');
       close();
       break;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
-import { activeSeal, Battle, buyGear, canShop, equipGear, newRun, resumeWave, stats } from '../src/engine.ts';
+import { activeSeal, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, resumeWave, stats } from '../src/engine.ts';
 import { decode, serialize } from '../src/saves.ts';
 
 function at(wave, step, level = 15) {
@@ -194,4 +194,98 @@ test('All gear ranks have distinct names for every slot and relic', () => {
     }
   }
   assert.equal(names.size, 384);
+});
+
+test('Affinities modify damage, and campaign immunities never conflict with a required seal', () => {
+  function strike(trait) {
+    const run = at(3, 1, 15);
+    run.mode = 'magic';
+    const hits = [];
+    const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event); });
+    battle.foe.hp = run.foeHp = 2000;
+    battle.foe.affinity = trait;
+    battle.tick(1.1);
+    assert.equal(hits.length, 1);
+    return hits[0].damage;
+  }
+  const base = strike();
+  assert.equal(strike({resists:'ember',weak:'rime',immune:false}), Math.round(base * .3));
+  assert.equal(strike({resists:'ember',weak:'rime',immune:true}), 0);
+  assert.equal(strike({resists:'steel',weak:'ember',immune:false}), Math.round(base * 1.5));
+  for (let wave = 1; wave <= WAVE_COUNT; wave++) for (let step = 1; step <= 32; step++) {
+    const foe = encounter(wave,step);
+    if (foe.affinity?.immune) assert.ok(!foe.seals.includes(foe.affinity.resists));
+  }
+});
+
+test('Essence is awarded once per marked encounter, even after retrying the same wave', () => {
+  const run = at(1, 7, 35);
+  const finish = () => {
+    run.foeHp = 1;
+    const battle = new Battle(run, () => {});
+    battle.tick(1);
+  };
+  finish();
+  assert.equal(run.essence, 1);
+  assert.deepEqual(run.essenceClaims, [7]);
+  run.wait = 0;
+  finish();
+  assert.equal(run.essence, 1);
+  assert.equal(run.kills, 2);
+});
+
+test('Workshop purchases obey the camp and rank rules, and casting rank changes cost', () => {
+  const run = at(2, 1, 12);
+  run.essence = 15;
+  assert.equal(buySpell(run, 'aegis'), false);
+  run.step = 9;
+  assert.equal(buySpell(run, 'aegis'), true);
+  assert.equal(buySpell(run, 'ember'), true);
+  assert.equal(knownRank(run, 'ember'), 2);
+  assert.equal(buySpell(run, 'ember'), false);
+  const battle = new Battle(run, () => {});
+  battle.foe.hp = run.foeHp = 2000;
+  run.mode = 'magic';
+  run.castRank = 2;
+  run.mp = 6;
+  battle.tick(1.1);
+  assert.equal(run.mode, 'steel');
+  assert.ok(run.mp < 2);
+  run.level = 1;
+  assert.equal(knownRank(run, 'aegis'), 0);
+});
+
+test('Aegis absorbs the next hit and is then spent', () => {
+  const run = at(1, 9, 15);
+  run.spellRanks.aegis = 1;
+  run.mode = 'magic';
+  run.spell = 'aegis';
+  const battle = new Battle(run, () => {});
+  battle.foe.spd = .2;
+  battle.tick(1.1);
+  assert.ok(run.ward > 0);
+  const hp = run.hp;
+  run.mode = 'steel';
+  run.enemyGauge = .999;
+  battle.tick(.01);
+  assert.equal(run.ward, 0);
+  assert.equal(run.hp, hp);
+});
+
+test('Version-one saves retain progress and receive Essence for cleared guardians', () => {
+  const run = at(5, 9, 22);
+  run.xp = 42;
+  run.gold = 801;
+  const old = {...run};
+  for (const key of ['ward','essence','essenceClaims','spellRanks','castRank']) delete old[key];
+  const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
+  assert.equal(migrated?.version, 2);
+  assert.equal(migrated.run.level, run.level);
+  assert.equal(migrated.run.xp, run.xp);
+  assert.equal(migrated.run.gold, run.gold);
+  assert.equal(migrated.run.foeHp, run.foeHp);
+  assert.equal(migrated.run.essence, 12);
+  assert.equal(migrated.run.castRank, 1);
+  assert.deepEqual(migrated.run.essenceClaims, [32,64,96,128]);
+  assert.deepEqual(decode(serialize(migrated.run))?.run, migrated.run);
 });

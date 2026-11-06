@@ -35,15 +35,24 @@ export const HEROES = {
 } satisfies Record<HeroId, {name: string; role: string; color: string; text: string; base: Stats; gain: Stats}>;
 export const HERO_IDS = Object.keys(HEROES) as HeroId[];
 
-export type SpellId = 'ember' | 'mend' | 'rime' | 'storm';
-export type Strike = 'steel' | Exclude<SpellId, 'mend'>;
-export const SPELLS = {
-  ember: {name: 'Ember Bolt', level: 1, cost: 4, color: '#ff9d60', text: 'Hurls fire. Burns Briar Seals.'},
+export type Strike = 'steel' | 'ember' | 'rime' | 'storm';
+export type SpellId = Exclude<Strike, 'steel'> | 'mend' | 'aegis' | 'verdict';
+export const ELEMENT_NAMES: Record<Strike, string> = {steel: 'steel', ember: 'fire', rime: 'ice', storm: 'lightning'};
+interface Spell {
+  name: string; level: number; cost: number; color: string; text: string;
+  strike?: Exclude<Strike, 'steel'>; price?: number;
+}
+export const SPELLS: Record<SpellId, Spell> = {
+  ember: {name: 'Ember Bolt', level: 1, cost: 4, color: '#ff9d60', strike: 'ember', text: 'Hurls fire. Burns Briar Seals.'},
   mend: {name: 'Mend', level: 2, cost: 6, color: '#9effc1', text: 'Restores HP when wounded. Uses steel while healthy.'},
-  rime: {name: 'Rime Lance', level: 4, cost: 5, color: '#92e9ff', text: 'Pierces with ice and delays the next enemy strike. Quenches Cinder Seals.'},
-  storm: {name: 'Storm Sigil', level: 7, cost: 7, color: '#d4adff', text: 'Strikes with lightning and pierces magic defense. Breaks Mirror Seals.'}
-} satisfies Record<SpellId, {name: string; level: number; cost: number; color: string; text: string}>;
+  rime: {name: 'Rime Lance', level: 4, cost: 5, color: '#92e9ff', strike: 'rime', text: 'Pierces with ice and delays the next enemy strike. Quenches Cinder Seals.'},
+  storm: {name: 'Storm Sigil', level: 7, cost: 7, color: '#d4adff', strike: 'storm', text: 'Strikes with lightning and pierces magic defense. Breaks Mirror Seals.'},
+  aegis: {name: 'Aegis', level: 3, cost: 8, color: '#9fe6c0', price: 5, text: 'Wards off part of the next hit. Uses steel while the ward holds.'},
+  verdict: {name: 'Thunder Verdict', level: 8, cost: 12, color: '#e0bbff', strike: 'storm', price: 8, text: 'Calls down a heavy lightning strike. Breaks Mirror Seals.'}
+};
 export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
+export const MAX_SPELL_RANK = 3;
+export const spellCost = (id: SpellId, rank: number) => SPELLS[id].cost + (rank - 1) * 2;
 export const SEALS: Record<Strike, {name: string; hint: string; color: string}> = {
   steel: {name: 'Null Seal', hint: 'Strike with steel', color: '#eac180'},
   ember: {name: 'Briar Seal', hint: 'Cast Ember Bolt', color: SPELLS.ember.color},
@@ -85,7 +94,8 @@ const REGULAR_SEALS: Strike[] = ['ember', 'rime', 'storm', 'steel'];
 export interface Enemy {
   name: string; hp: number; atk: number; def: number; res: number; spd: number;
   arcane: boolean; boss: boolean; xp: number; gold: number; art: string;
-  hue: number; seals: readonly Strike[];
+  hue: number; seals: readonly Strike[]; essence: number;
+  affinity?: {resists: Strike; weak: Strike; immune: boolean};
 }
 
 export function encounter(wave: number, step: number): Enemy {
@@ -100,13 +110,22 @@ export function encounter(wave: number, step: number): Enemy {
   const swift = kind === 'swift';
   const first = wave === 1 && step <= 5;
   const regularSeal = wave === 1 ? 'ember' : REGULAR_SEALS[(wave + (step === 24 ? 2 : 0)) % 4]!;
-  const seals = boss ? (wave === 32 ? ['steel', 'rime', 'storm'] as const :
+  const seals: readonly Strike[] = boss ? (wave === 32 ? ['steel', 'rime', 'storm'] as const :
     wave >= 9 ? [seal, REGULAR_SEALS[(REGULAR_SEALS.indexOf(seal) + 1 + (wave % 3)) % 4]!] : [seal]) :
     elite ? [regularSeal] : [];
+  const marked = step === 7 || step === 19 || step === 27;
+  const affinityIndex = (family + Math.floor((wave - 1) / 4)) % 4;
+  const resistances: Strike[] = ['steel', 'ember', 'rime', 'storm'];
+  const weaknesses: Strike[] = ['storm', 'rime', 'ember', 'steel'];
+  const resist = family === 15 ? 'ember' : resistances[affinityIndex]!;
+  const weak = family === 15 ? 'rime' : weaknesses[affinityIndex]!;
+  const affinity = (marked || (family === 15 && wave > 1)) && !seals.includes(resist) ?
+    {resists: resist, weak, immune: step === 27 && wave >= 5 && resist !== 'steel'} : undefined;
+  const openingBoost = step <= 2 ? 0 : Math.max(0, 1 - (wave - 1) / 8) * (guard ? 0.22 : swift ? 0 : 0.14);
   return {
     name: boss ? bossName : wave === 1 && step < 12 ? name : ASPECTS[(wave + Math.floor(step / 8)) % 8] + ' ' + name,
-    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1)) * scale),
-    atk: (boss ? 38 + (wave % 4) * 3 : (first ? 6.5 : 15 + 8 * position) * (swift ? 0.83 : 1)) * scale ** 1.05,
+    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale),
+    atk: (boss ? (38 + (wave % 4) * 3) * (wave < 5 ? 1 : wave < 9 ? 0.9 : 0.8) : (first ? 6.5 : 13.3 + 7.5 * position) * (swift ? 0.83 : 1)) * scale ** 1.05,
     def: (boss ? 13 : guard ? 10 : 4) * scale ** 0.78,
     res: (boss ? 12 : kind === 'hex' ? 12 : 4) * scale ** 0.78,
     spd: (boss ? 1.14 + (wave % 5) * 0.13 : first ? 0.61 : swift ? 1.61 : guard ? 0.79 : 1.03) * (1 + (wave - 1) * 0.017),
@@ -115,7 +134,7 @@ export function encounter(wave: number, step: number): Enemy {
     gold: Math.round((boss ? 130 : 7 + 6 * position + (elite ? 10 : 0)) * scale ** 0.87),
     art: boss ? 'boss-' + wave : 'foe-' + (family + 1),
     hue: boss || (wave === 1 && step < 13) ? 0 : ((wave - 1) * 39 + Math.floor(step / 7) * 29) % 360,
-    seals
+    seals, affinity, essence: boss ? 3 : marked ? 1 : 0
   };
 }
 
@@ -181,4 +200,5 @@ export function gearBonus(gear: Gear): Partial<Stats> {
   }
 }
 export const gearPrice = (gear: Gear) => Math.round([95, 85, 64, 58, 66, 77][GEAR_SLOTS.indexOf(gear.slot)]! * gear.tier ** 1.43);
-export const xpGoal = (level: number) => Math.floor(33 + 12 * level + 7 * level ** 1.61);
+export const xpGoal = (level: number) =>
+  Math.floor((33 + 12 * level + 7 * level ** 1.61) * (1 + Math.min(0.18, Math.max(0, level - 3) * 0.022)));
