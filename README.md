@@ -8,7 +8,7 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 - Switch between sword and grimoire while fighting. Hold the grimoire or tap its caret to choose a spell. Keyboard shortcuts are 1 for sword, 2 for grimoire and 3 for the spell list.
 - Ember Bolt is available from level 1. Mend unlocks at 2, Rime Lance at 4 and Storm Sigil at 7. Seals are broken by the indicated spell or a steel strike. Some guardians add new seals at HP thresholds.
 - Victory advances immediately after the defeat animation. HP carries between encounters and refills when starting a wave. Falling restarts the current wave at encounter 1 and preserves experience, gold and gear. The final wave is replayable.
-- Open the armory with the top-left button. The shop sells weapons, armor, shields, helmets, boots and rings. Some guardians drop relics. The top-right button opens the pause menu.
+- Open the armory with the top-left button. The shop opens at encounters 9–10, 17–18 and 25–26, and after a defeat before retrying. Its Auto-equip purchases checkbox can equip each purchase immediately. It sells weapons, armor, shields, helmets, boots and rings. Some guardians drop relics. The top-right button opens the pause menu.
 - Open the pause menu to mute sound effects, adjust the volume, or hear a test strike. The settings are saved on this browser. See [sound credits](AUDIO.md).
 - Three local autosave files. Use Export backup in the pause menu and Import a backup on the Load Game screen to move an oath between devices or browsers.
 

@@ -6,7 +6,7 @@ import {
   HEROES, HERO_IDS, SEALS, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, Battle, buyGear, equipGear, newRun, resumeWave, stats, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, Battle, buyGear, CAMP_STARTS, canShop, equipGear, newRun, resumeWave, stats, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import { decode, readSlot, serialize, SLOT_COUNT, writeSlot, type Save } from './saves.ts';
@@ -28,6 +28,10 @@ let effects: Effects | undefined;
 let dialogKind = '';
 let gearTab = 'stats';
 let shopTier = 1;
+const AUTO_EQUIP_KEY = 'hollow-oath.auto-equip';
+let autoEquip = false;
+try { autoEquip = localStorage.getItem(AUTO_EQUIP_KEY) === 'true'; }
+catch { /* Use the default if storage is unavailable. */ }
 let dialogOpener: HTMLElement | null = null;
 let toastTimer = 0;
 let longTimer = 0;
@@ -149,7 +153,7 @@ function help(): void {
     <p><strong>Sword and grimoire.</strong> Tap to switch. Hold the grimoire or tap its caret to choose a spell. On a keyboard, use <kbd>1</kbd> for steel, <kbd>2</kbd> for magic and <kbd>3</kbd> for the spell list. When mana runs low, steel takes over. Tap the grimoire again once you have enough MP.</p>
     <p><strong>Seals.</strong> Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Some bosses raise a new seal as their HP falls. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
-    <p><strong>The armory.</strong> Spend gold on equipment and equip it in the left menu. The quartermaster opens a new gear rank each wave. Some bosses drop relics. The next wave begins with full HP and MP.</p>
+    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The shop opens at encounters 9–10, 17–18 and 25–26, and after a defeat before you retry. Each wave opens a new gear rank. Some bosses drop relics. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
 }
@@ -164,7 +168,7 @@ function startArena(run: Run): void {
   mount('arena', `<main class="frame arena" tabindex="-1">
     <div id="world" class="world" aria-hidden="true"></div>
     <header class="battle-head">
-      <button class="round" data-action="gear" aria-label="Equipment and shop" title="Equipment and shop">${icon('bag')}</button>
+      <button class="round" id="armory-button" data-action="gear" aria-label="Equipment and shop" title="Equipment and shop">${icon('bag')}</button>
       <div class="wave-title"><span class="kicker" id="wave-index"></span><strong id="wave-name"></strong></div>
       <button class="round" data-action="options" aria-label="Options" title="Options">${icon('dots')}</button>
     </header>
@@ -290,7 +294,9 @@ function updateHud(): void {
     displayPhase = r.phase;
     outcome();
   }
-  find('combat-line').textContent = paceHint || rewardLine || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + SPELLS[r.spell].cost + ' MP per cast');
+  const atCamp = r.phase === 'fight' && canShop(r);
+  find('armory-button').classList.toggle('camp-open', atCamp);
+  find('combat-line').textContent = paceHint || (atCamp ? 'Camp nearby · Shop open' : rewardLine) || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + SPELLS[r.spell].cost + ' MP per cast');
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
@@ -305,7 +311,7 @@ function outcome(): void {
     <p>${lost ? 'You fell at encounter ' + r.step + '. Your XP, gold and gear carry over.' :
       'All thirty-two waves are cleared. The oath is fulfilled.'}</p>
     <button class="primary" data-action="resume-wave">${lost ? 'Retry Wave' : 'Replay Final Wave'} ${icon('next')}</button>
-    <button class="text-action" data-action="gear">Open Armory</button>
+    <button class="text-action" data-action="${lost ? 'visit-shop' : 'gear'}">${lost ? 'Visit Shop' : 'Open Armory'}</button>
     <button class="text-action exit-link" data-action="exit">Return to Title</button>
   </div>`;
   el.querySelector<HTMLElement>('.primary')?.focus({preventScroll: true});
@@ -379,6 +385,7 @@ function battleEvent(event: BattleEvent): void {
       rewardLine = '';
       paceHint = '';
       displayEncounter();
+      if (CAMP_STARTS.some(step => current().step === step)) toast('Camp nearby · Shop open in the Armory');
       save();
       break;
     case 'armed':
@@ -441,6 +448,8 @@ function bonusText(gear: Gear): string {
 }
 function gearView(): void {
   const r = current(), s = stats(r);
+  const shopOpen = canShop(r);
+  if (gearTab === 'shop' && !shopOpen) gearTab = 'stats';
   const tabs = [['stats', 'Character'], ['equip', 'Equipment'], ['shop', 'Shop']];
   let body = '';
   if (gearTab === 'stats') {
@@ -455,17 +464,18 @@ function gearView(): void {
         <select data-equip="${g}" aria-label="${GEAR_NAMES[g]}"><option value="">Unequipped</option>${items.map(item => `<option value="${gearId(item)}" ${item === equipped ? 'selected' : ''}>${gearName(item)} · Rank ${item.tier}</option>`).join('')}</select></label>`;
     }).join('')}</div>`;
   } else {
-    body = `<div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
+    body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
+      <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
       <div class="gear-list">${GEAR_SLOTS.map(g => {
         const gear = {slot: g, tier: shopTier, relic: false};
         const owned = r.inventory.some(item => gearId(item) === gearId(gear));
         const price = gearPrice(gear);
         return `<div class="gear-row"><span><strong>${gearName(gear)}</strong><small>${bonusText(gear)}</small></span>
           <button class="compact" data-action="buy" data-id="${g}" ${owned || r.gold < price ? 'disabled' : ''} aria-label="${owned ? gearName(gear) + ' owned' : 'Buy ' + gearName(gear) + ' for ' + price + ' gold'}">${owned ? 'Owned' : '◆ ' + fmt(price)}</button></div>`;
-      }).join('')}</div><p class="sheet-foot">Purchased gear goes into your equipment collection.</p>`;
+      }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
-    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}">${name}</button>`).join('')}</div>${body}`, 'TRAVELLER’S CAMP');
+    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${id === 'shop' && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Shop opens at encounters 9–10, 17–18 and 25–26, and after a defeat.</p>'}${body}`, 'TRAVELLER’S CAMP');
 }
 function options(): void {
   const sound = audioSettings();
@@ -549,6 +559,12 @@ app.addEventListener('input', event => {
 });
 app.addEventListener('change', event => {
   const input = event.target;
+  if (input instanceof HTMLInputElement && input.id === 'auto-equip') {
+    autoEquip = input.checked;
+    try { localStorage.setItem(AUTO_EQUIP_KEY, String(autoEquip)); }
+    catch { /* Keep the preference for the current session. */ }
+    return;
+  }
   if (!(input instanceof HTMLSelectElement) || !battle) return;
   if (input.dataset.equip) {
     const gear = current().inventory.find(item => gearId(item) === input.value);
@@ -594,8 +610,9 @@ app.addEventListener('click', event => {
     case 'help': help(); break;
     case 'close': close(); break;
     case 'options': options(); break;
+    case 'visit-shop':
     case 'gear':
-      gearTab = 'stats';
+      gearTab = action === 'visit-shop' && canShop(current()) ? 'shop' : 'stats';
       shopTier = current().wave;
       gearView();
       break;
@@ -607,10 +624,14 @@ app.addEventListener('click', event => {
     case 'buy': {
       const gear = {slot: id as GearSlot, tier: shopTier, relic: false};
       if (buyGear(current(), gear)) {
+        if (autoEquip) {
+          equipGear(current(), gear, gear.slot);
+          battle!.refresh();
+        }
         save();
         updateHud();
         gearView();
-        toast('Purchased ' + gearName(gear) + '.');
+        toast((autoEquip ? 'Equipped ' : 'Purchased ') + gearName(gear) + '.');
       }
       break;
     }

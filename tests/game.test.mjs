@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearPrice, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
-import { activeSeal, Battle, buyGear, equipGear, newRun, resumeWave, stats } from '../src/engine.ts';
+import { activeSeal, Battle, buyGear, canShop, equipGear, newRun, resumeWave, stats } from '../src/engine.ts';
 import { decode, serialize } from '../src/saves.ts';
 
 function at(wave, step, level = 15) {
@@ -129,6 +129,8 @@ test('Purchasing and equipping respect gold, wave, ownership and the gear slot',
   const item = {slot: 'weapon', tier: 1, relic: false};
   assert.equal(buyGear(r, item), false);
   r.gold = 500;
+  assert.equal(buyGear(r, item), false);
+  r.step = 9;
   assert.equal(buyGear(r, {...item,tier:2}), false);
   assert.equal(buyGear(r, item), true);
   assert.equal(buyGear(r, item), false);
@@ -160,4 +162,20 @@ test('A fallen guardian automatically opens the next wave', () => {
   assert.equal(r.wave, 2);
   assert.equal(r.step, 1);
   assert.equal(r.hp, stats(r).hp);
+});
+
+test('Shop only opens at marked camps or after defeat', () => {
+  const r = newRun('vanguard');
+  for (let step = 1; step <= 32; step++) {
+    r.step = step;
+    assert.equal(canShop(r), [9, 10, 17, 18, 25, 26].includes(step));
+  }
+  r.phase = 'clear';
+  assert.equal(canShop(r), false);
+  r.phase = 'fallen';
+  r.gold = 200;
+  assert.equal(canShop(r), true);
+  assert.ok(buyGear(r, {slot:'ring', tier:1, relic:false}));
+  resumeWave(r);
+  assert.equal(canShop(r), false);
 });

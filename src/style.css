@@ -251,3 +251,7 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 .audio-volume output { color: var(--gold); font-variant-numeric: tabular-nums; }
 .audio-volume input { grid-column: 1 / -1; width: 100%; margin: 0; min-height: 33px; }
 .audio-settings button { justify-self: start; }
+.camp-open { border-color: var(--gold); box-shadow: 0 0 12px #e3c18560; }
+.shop-note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.auto-equip { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; }
+.auto-equip input { accent-color: var(--gold); }

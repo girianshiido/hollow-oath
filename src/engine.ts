@@ -73,8 +73,14 @@ export function resumeWave(run: Run): void {
   openEncounter(run);
 }
 
+export const CAMP_STARTS = [9, 17, 25] as const;
+export function canShop(run: Run): boolean {
+  return run.phase === 'fallen' ||
+    (run.phase === 'fight' && CAMP_STARTS.some(step => run.step === step || run.step === step + 1));
+}
+
 export function buyGear(run: Run, gear: Gear): boolean {
-  if (gear.relic || gear.tier < 1 || gear.tier > run.wave || !Number.isInteger(gear.tier) ||
+  if (!canShop(run) || gear.relic || gear.tier < 1 || gear.tier > run.wave || !Number.isInteger(gear.tier) ||
       run.gold < gearPrice(gear) || run.inventory.some(item => gearId(item) === gearId(gear))) return false;
   run.gold -= gearPrice(gear);
   run.inventory.push(gear);
