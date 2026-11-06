@@ -89,6 +89,25 @@ const FAMILIES = [
   ['Sporeguard', 'guard'], ['Veiled Alchemist', 'hex'], ['Crag Fiend', 'guard'],
   ['Blood Scorpion', 'swift'], ['Astral Cuttle', 'hex'], ['Ivory Revenant', 'guard']
 ] as const;
+const NEWCOMERS = [
+  'Wickstalker', 'Rimewing', 'Sepulcher Tortoise', 'Bellmaw',
+  'Censer Effigy', 'Bladefin Koi', 'Veilmoth Oracle', 'Glaivehorn Sentinel'
+] as const;
+const NEWCOMER_STEPS = [5, 11, 17, 23, 29, 9, 15, 21] as const;
+const NEWCOMER_PALETTES = [0, 57, 132, 205, 285, 327] as const;
+
+function newcomer(wave: number, step: number) {
+  const unlocked = Math.min(NEWCOMERS.length, Math.floor(wave / 4));
+  // The last arrival has a second palette in the final wave, where it makes its only appearances.
+  const encore = wave === WAVE_COUNT && step === 30;
+  const position = encore ? NEWCOMER_STEPS.length : NEWCOMER_STEPS.findIndex(candidate => candidate === step);
+  if (!unlocked || position < 0 || position >= unlocked + 2) return undefined;
+  // Introduce the latest creature at the first sighting, then rotate through earlier arrivals.
+  const index = position === 0 || encore || unlocked === 1 ? unlocked - 1 : (wave + position - 1) % (unlocked - 1);
+  const palette = (wave - (index + 1) * 4 + position) % NEWCOMER_PALETTES.length;
+  return {name: NEWCOMERS[index]!, art: 'newcomer-' + (index + 1), hue: NEWCOMER_PALETTES[palette]!};
+}
+
 const ASPECTS = ['Gloam', 'Cinder', 'Rime', 'Viridian', 'Astral', 'Sable', 'Ivory', 'Blood'];
 const REGULAR_SEALS: Strike[] = ['ember', 'rime', 'storm', 'steel'];
 export interface Enemy {
@@ -104,6 +123,7 @@ export function encounter(wave: number, step: number): Enemy {
   const [_, bossName, seal] = WAVES[wave - 1]!;
   const family = wave === 1 && step <= 12 ? step - 1 : ((wave - 1) * 7 + (step - 1) * 5 + Math.floor(step / 9)) % FAMILIES.length;
   const [name, kind] = FAMILIES[family]!;
+  const arrival = newcomer(wave, step);
   const scale = 1 + 0.44 * (wave - 1) ** 1.32;
   const position = (step - 1) / 31;
   const guard = kind === 'guard';
@@ -123,7 +143,7 @@ export function encounter(wave: number, step: number): Enemy {
     {resists: resist, weak, immune: step === 27 && wave >= 5 && resist !== 'steel'} : undefined;
   const openingBoost = step <= 2 ? 0 : Math.max(0, 1 - (wave - 1) / 8) * (guard ? 0.22 : swift ? 0 : 0.14);
   return {
-    name: boss ? bossName : wave === 1 && step < 12 ? name : ASPECTS[(wave + Math.floor(step / 8)) % 8] + ' ' + name,
+    name: boss ? bossName : arrival?.name ?? (wave === 1 && step < 12 ? name : ASPECTS[(wave + Math.floor(step / 8)) % 8] + ' ' + name),
     hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale),
     atk: (boss ? (38 + (wave % 4) * 3) * (wave < 5 ? 1 : wave < 9 ? 0.9 : 0.8) : (first ? 6.5 : 13.3 + 7.5 * position) * (swift ? 0.83 : 1)) * scale ** 1.05,
     def: (boss ? 13 : guard ? 10 : 4) * scale ** 0.78,
@@ -132,8 +152,8 @@ export function encounter(wave: number, step: number): Enemy {
     arcane: boss ? wave % 3 !== 1 : kind === 'hex',
     boss, xp: Math.round((boss ? 155 : 13 + 14 * position + (elite ? 14 : 0)) * scale ** 0.96),
     gold: Math.round((boss ? 130 : 7 + 6 * position + (elite ? 10 : 0)) * scale ** 0.87),
-    art: boss ? 'boss-' + wave : 'foe-' + (family + 1),
-    hue: boss || (wave === 1 && step < 13) ? 0 : ((wave - 1) * 39 + Math.floor(step / 7) * 29) % 360,
+    art: boss ? 'boss-' + wave : arrival?.art ?? 'foe-' + (family + 1),
+    hue: boss || (wave === 1 && step < 13) ? 0 : arrival?.hue ?? ((wave - 1) * 39 + Math.floor(step / 7) * 29) % 360,
     seals, affinity, essence: boss ? 3 : marked ? 1 : 0
   };
 }

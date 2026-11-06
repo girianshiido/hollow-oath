@@ -543,3 +543,28 @@ test('A killing blow reports full damage while HP stops at zero', () => {
   assert.equal(run.foeHp,0);
   assert.equal(run.kills,1);
 });
+
+test('Eight new creatures debut every four waves and return in different palettes', () => {
+  const sightings = Array.from({length: 8}, () => []);
+  for (let wave = 1; wave <= WAVE_COUNT; wave++) {
+    const arrivals = [];
+    for (let step = 1; step <= 32; step++) {
+      const foe = encounter(wave, step);
+      if (!foe.art.startsWith('newcomer-')) continue;
+      assert.ok(!foe.boss && foe.seals.length === 0 && foe.essence === 0);
+      const index = Number(foe.art.split('-')[1]) - 1;
+      sightings[index].push({wave, hue:foe.hue});
+      arrivals.push(foe.art);
+    }
+    if (wave < 4) assert.equal(arrivals.length, 0);
+    else assert.ok(arrivals.length >= 3 && arrivals.length <= (wave === 32 ? 9 : 8));
+    if (wave === 32) assert.equal(new Set(arrivals).size, 8);
+  }
+  sightings.forEach((entries, index) => {
+    const debut = (index + 1) * 4;
+    assert.equal(entries[0].wave, debut);
+    assert.equal(encounter(debut, 5).art, 'newcomer-' + (index + 1));
+    assert.equal(encounter(debut, 5).hue, 0);
+    assert.ok(new Set(entries.map(entry => entry.hue)).size > 1);
+  });
+});

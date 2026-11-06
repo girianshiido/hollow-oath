@@ -4,6 +4,7 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 
 - Four classes with different starting attributes and growth per level.
 - Thirty-two waves, 1,024 encounters and 32 illustrated guardians.
+- A new illustrated creature joins the regular encounters every four waves, from Wickstalker in wave 4 to Glaivehorn Sentinel in wave 32. Earlier arrivals return in rotating palettes.
 - Automatic combat with separate clocks for the hero and enemy. Speed measures attacks per second.
 - Switch between sword and grimoire while fighting. Hold the grimoire or tap its caret to choose a spell. Keyboard shortcuts are 1 for sword, 2 for grimoire and 3 for the spell list.
 - Ember Bolt is available from level 1. Mend unlocks at 2, Rime Lance at 4 and Storm Sigil at 7. Seals are broken by the indicated spell or a steel strike. Some guardians add new seals at HP thresholds.

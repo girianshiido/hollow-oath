@@ -56,3 +56,16 @@ Portrait orientation full-bleed premium Japanese dark fantasy JRPG key art, high
 
 Transparency requested: no.
 
+
+## Wave bestiary expansion
+
+Eight new sprites were created with the built-in ImageGen tool. The final cutouts are `public/art/newcomer-1.webp` through `public/art/newcomer-8.webp`, in the order shown below. The arena applies six hue palettes to the cutouts at runtime.
+
+### Atlas A
+
+Use case: stylized-concept. Create one game sprite atlas for the existing dark fantasy JRPG Hollow Oath. Exactly FOUR distinct full-body creature sprites on truly transparent alpha, arranged as a strict 2x2 equal-cell square grid. Each character well centered inside its own cell, totally isolated, with 12% empty margins on ALL sides. Upper left: a lurching medieval iron lantern automaton with crooked wrought-metal bird legs and an amber furnace lamp for its head, no human face. Upper right: an enormous pale dungeon bat with angular torn wings, ice-blue spine and frosted claws, swooping diagonally. Lower left: a moss-green crypt tortoise with a crumbling Gothic chapel roof growing out of its armored shell, grave candles on the roof. Lower right: a tall dark crimson rag-wrapped houndlike quadruped with a broken bell collar and two clawed forelegs, distinct angular jackal head. Professional serious Japanese seinen fantasy manga game assets with thin etched ink, carefully painted textures and restrained dramatic edge light, realistic material rendering, readable silhouettes. Art must remain clear in a 320px phone battle screen. True transparent background, no floor, fog, panel lines, labels, text, scene, cast shadow or UI. Keep all wings, feet and weapons within their own cell.
+
+### Atlas B
+
+Use case: stylized-concept. Create one game sprite atlas for the existing dark fantasy JRPG Hollow Oath. Exactly FOUR distinct full-body creature sprites on truly transparent alpha, arranged as a strict 2x2 equal-cell square grid. Each character well centered inside its own cell, totally isolated, with 12% empty margins on ALL sides. Upper left: a sinister porcelain plague effigy with a cracked long beaked mask, folded white ceramic mantle and brass articulated legs, carrying a censer. Upper right: an armored black-and-vermilion koi demon suspended in a sinuous flying spiral, edged with long flowing fins and copper blades, fully visible. Lower left: a floating many-legged blind moth oracle with moth-wing cloak, hooded silhouette, iridescent purple eyespots and a trapped candle flame between its legs. Lower right: an imposing jade basalt centaur sentinel with a cracked antler mask, long braided chain mane and broad ceremonial glaive, standing side-on facing the viewer. Professional serious Japanese seinen fantasy manga game assets with thin etched ink, carefully painted textures and restrained dramatic edge light, realistic material rendering, readable silhouettes. Art must remain clear in a 320px phone battle screen. True transparent background, no floor, fog, panel lines, labels, text, scene, cast shadow or UI. Keep all wings, feet and weapons within their own cell.
+
