@@ -12,3 +12,13 @@ The following OpenGameArt sounds are used under [CC0 1.0](https://creativecommon
 | Incoming hit and reward | [Rpg Sound Effect Pack](https://opengameart.org/content/rpg-sound-effect-pack) | Delta12 Studio |
 
 Cues were edited for timing and levels, with EQ and pitch adjustments as needed. The game includes twelve short Ogg Vorbis files, with matching AAC encodes for older Safari versions. The offline cache and portable HTML include the sound effects.
+
+## Original score
+
+Three original instrumental pieces were rendered from the MIDI scores in `music/` using FluidSynth 2.6 and the local `MuseScore_General_HQ.sf2` soundfont. The stereo masters run at 48 kHz. The game uses Ogg Vorbis, with AAC versions for browsers that cannot decode Ogg.
+
+| Scene | Piece | Playback |
+| --- | --- | --- |
+| Title | Ashes Around the Eclipse | 72 seconds. Harp, cello and English horn with a fade before the restart. |
+| Combat | Iron Through the Hollow | 76.8 seconds. Cello ostinato, brass and drums. The loop is cut from a repeated render and blended across the seam. |
+| Defeat | After the Last Bell | 64 seconds. Piano, cello and bell with a fade before the restart. |

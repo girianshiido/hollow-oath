@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, emptyProfile, mergeProfile, profileFromRun } from './achievements.ts';
-import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, unlockAudio } from './audio.ts';
+import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound, setMusic, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import {
@@ -59,6 +59,7 @@ const current = (): Run => battle!.run;
 function mount(name: string, body: string): void {
   stopSounds();
   screen = name;
+  if (name !== 'arena') setMusic('title');
   effects?.dispose();
   effects = undefined;
   dialogKind = '';
@@ -90,7 +91,7 @@ function title(): void {
   mount('title', `<main class="frame title-screen" tabindex="-1">
     <div class="title-plate" aria-hidden="true" style="--cover:url(&quot;${art('title')}&quot;)"></div>
     <div class="title-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="folio"><span>AN ILLUSTRATED DARK FANTASY</span><i></i><span>VOL. I</span></div>
+    <div class="folio"><span>AN ILLUSTRATED DARK FANTASY</span><i></i><button class="title-sound" id="title-sound" data-action="title-sound">Play music</button></div>
     <div class="title-center">
       <p class="title-kicker">THE CHRONICLE OF THE HOLLOW</p>
       <h1>HOLLOW<span>OATH</span></h1>
@@ -111,6 +112,21 @@ function title(): void {
     </footer>
   </main>`);
   renderUpdates();
+  renderTitleSound();
+}
+
+function renderTitleSound(): void {
+  const button = document.querySelector('#title-sound');
+  if (button) button.textContent = audioActive() ? 'Mute sound' : 'Play music';
+}
+async function toggleTitleSound(): Promise<void> {
+  const {muted, volume} = audioSettings();
+  if (audioActive()) configureAudio(true, volume);
+  else {
+    if (muted || !volume) configureAudio(false, volume || 60);
+    await unlockAudio();
+  }
+  renderTitleSound();
 }
 
 function heroScreen(): void {
@@ -339,6 +355,7 @@ function updateHud(): void {
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
+  setMusic(r.phase === 'fallen' ? 'defeat' : r.phase === 'victory' ? 'title' : 'battle');
   el.hidden = r.phase === 'fight' || r.phase === 'clear';
   el.className = 'outcome';
   if (el.hidden) { el.innerHTML = ''; return; }
@@ -637,7 +654,7 @@ function options(): void {
   openDialog('options', 'Game paused', `<div class="options-list">
     <button class="primary wide" data-action="close">Resume ${icon('next')}</button>
     <fieldset class="audio-settings">
-      <legend>Sound effects</legend>
+      <legend>Music and sound effects</legend>
       <label class="audio-mute"><input type="checkbox" id="mute-sound" ${sound.muted ? 'checked' : ''}> Mute sound</label>
       <div class="audio-volume"><label for="sound-volume">Volume</label><output id="volume-value" for="sound-volume">${sound.volume}%</output>
         <input type="range" id="sound-volume" min="0" max="100" value="${sound.volume}" ${sound.muted ? 'disabled' : ''}></div>
@@ -726,7 +743,7 @@ app.addEventListener('input', event => {
   const slider = find<HTMLInputElement>('sound-volume');
   const volume = slider.valueAsNumber;
   configureAudio(muted, volume);
-  unlockAudio();
+  void unlockAudio();
   slider.disabled = muted;
   find('volume-value').textContent = volume + '%';
   find<HTMLButtonElement>('preview-sound').disabled = muted || volume === 0;
@@ -759,10 +776,11 @@ app.addEventListener('change', event => {
 app.addEventListener('click', event => {
   const target = (event.target as Element).closest<HTMLButtonElement>('button[data-action]');
   if (!target || target.disabled) return;
-  unlockAudio();
   const {action, id} = target.dataset;
+  if (action !== 'title-sound') void unlockAudio().then(renderTitleSound);
   switch (action) {
     case 'title': title(); break;
+    case 'title-sound': void toggleTitleSound(); break;
     case 'new': heroScreen(); break;
     case 'load': slotScreen(); break;
     case 'delete-slot': confirmDelete(id!); break;
@@ -865,7 +883,7 @@ app.addEventListener('click', event => {
 
 window.addEventListener('keydown', event => {
   if (event.repeat || screen !== 'arena' || dialogKind || event.altKey || event.ctrlKey || event.metaKey) return;
-  unlockAudio();
+  void unlockAudio();
   if (event.key === '1') mode('steel');
   if (event.key === '2') mode('magic');
   if (event.key === '3') showSpells();

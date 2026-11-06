@@ -54,6 +54,8 @@ h1, h2, p, figure, dl, dd { margin: 0; }
 .title-plate { position: absolute; inset: 0; z-index: -2; background: linear-gradient(180deg, #0c130b58, #0b0d0970 50%, #0a0e0b 100%), var(--cover) 50% 46%/cover, #26302a; }
 .folio { display: flex; gap: 14px; justify-content: space-between; align-items: center; color: #e7d7b3; font-size: 9px; font-weight: 750; letter-spacing: .17em; }
 .folio i { flex: 1; height: 1px; background: #ead8a643; }
+.title-sound { flex: none; min-height: 44px; margin-block: -9px; padding: 0; border: 0; background: none; color: var(--gold); font-size: 10px; font-weight: 700; }
+.title-sound:hover { color: #fff3cb; }
 .title-center { width: min(100%, 540px); margin: auto; padding: clamp(45px, 13vh, 130px) 0 18px; text-align: center; }
 .title-kicker { color: #e4c694; font-size: clamp(8px, 2.25vw, 12px); font-weight: 700; letter-spacing: .24em; margin-bottom: 14px; text-shadow: 0 1px 5px black; }
 .title-center h1 { color: #f4e4bc; font: normal clamp(51px, 14vw, 125px)/.79 var(--serif); letter-spacing: -.07em; text-shadow: 0 5px 30px #060907, 0 1px 2px #060907; }

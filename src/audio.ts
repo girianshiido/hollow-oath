@@ -15,6 +15,16 @@ const LEVELS: Record<Cue, number> = {
   steel: 0.65, hurt: 0.63, ember: 0.83, rime: 0.78, storm: 0.72,
   heal: 0.69, block: 0.45, seal: 0.61, reward: 0.69, fallen: 0.7
 };
+const MUSIC = {
+  title: {file: 'music-title', gain: 0.34},
+  battle: {file: 'music-battle', gain: 0.28},
+  defeat: {file: 'music-defeat', gain: 0.36}
+} as const;
+type MusicScene = keyof typeof MUSIC;
+let scene: MusicScene = 'title';
+let pendingScene: MusicScene | undefined;
+let music: {scene: MusicScene; source: AudioBufferSourceNode; gain: GainNode} | undefined;
+
 const KEY = 'hollow-oath.audio';
 const embedded = (globalThis as typeof globalThis & {HOLLOW_AUDIO?: Record<string, string>}).HOLLOW_AUDIO;
 const supportsOgg = Boolean(document.createElement('audio').canPlayType('audio/ogg; codecs="vorbis"'));
@@ -55,7 +65,9 @@ function load(name: string): Promise<AudioBuffer | undefined> {
   return ready;
 }
 
-export function unlockAudio(): void {
+export const audioActive = () => context?.state === 'running' && !settings.muted && settings.volume > 0;
+
+export async function unlockAudio(): Promise<void> {
   if (settings.muted || !settings.volume || document.hidden) return;
   const Audio = window.AudioContext ?? (window as Window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
   if (!Audio) return;
@@ -67,8 +79,48 @@ export function unlockAudio(): void {
       master.connect(context.destination);
       for (const name of Object.values(SOUNDS).flat()) void load(name);
     }
-    if (context.state !== 'running') void context.resume().catch(() => {});
+    if (context.state !== 'running') await context.resume();
+    void refreshMusic();
   } catch { /* The game remains playable when audio is unavailable. */ }
+}
+
+export function setMusic(next: MusicScene): void {
+  if (scene === next) return;
+  scene = next;
+  if (music && context) {
+    const at = context.currentTime;
+    music.gain.gain.cancelScheduledValues(at);
+    music.gain.gain.setTargetAtTime(0, at, 0.065);
+    music.source.stop(at + 0.30);
+    music = undefined;
+  }
+  void refreshMusic();
+}
+
+async function refreshMusic(): Promise<void> {
+  const requested = scene;
+  if (!context || !master || !audioActive() || document.hidden ||
+      music?.scene === requested || pendingScene === requested) return;
+  pendingScene = requested;
+  const track = MUSIC[requested];
+  const buffer = await load(track.file);
+  if (pendingScene === requested) pendingScene = undefined;
+  if (!buffer || !context || !master || !audioActive() || document.hidden ||
+      requested !== scene || music?.scene === requested) return;
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  const at = context.currentTime;
+  source.buffer = buffer;
+  source.loop = true;
+  // The battle master is exactly 192 quarter notes at 150 BPM.
+  if (requested === 'battle') source.loopEnd = Math.min(buffer.duration, 76.8);
+  gain.gain.setValueAtTime(0, at);
+  gain.gain.linearRampToValueAtTime(track.gain, at + 0.24);
+  source.connect(gain);
+  gain.connect(master);
+  source.onended = () => { source.disconnect(); gain.disconnect(); };
+  music = {scene: requested, source, gain};
+  source.start();
 }
 
 let revision = 0;
@@ -83,7 +135,7 @@ export function backgroundAudio(): void {
   if (document.hidden) {
     stopSounds();
     void context?.suspend().catch(() => {});
-  } else if (context && !settings.muted && settings.volume) void context.resume().catch(() => {});
+  } else if (context && !settings.muted && settings.volume) void unlockAudio();
 }
 
 export async function playSound(cue: Cue, preview = false): Promise<void> {
