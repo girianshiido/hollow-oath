@@ -179,13 +179,49 @@ const GEAR_NAMES_BY_RANK = [
   ['the Firmament', 'Seraph’s Shard', 'Fallen Pinions', 'Firmament Guard', 'Broken Aureole', 'Heavenfall Striders', 'Blue Exile'],
   ['the Hollow Throne', 'Eclipse Reaver', 'Night Without End', 'Throne of Ash', 'Antler Diadem', 'Eventide Greaves', 'Last Light’s End']
 ] as const;
-const RELICS = ['Kingsbane', 'Oathplate', 'Graveward', 'The Last Crown', 'Wraithstep', 'Hollow Seal'];
+type GearNames = readonly [string, string, string, string, string, string];
+const RELICS: Record<HeroId, GearNames> = {
+  vanguard: ['Kingsbane', 'Oathplate', 'Graveward', 'The Last Crown', 'Wraithstep', 'Hollow Seal'],
+  hexweaver: ['Witch’s Thorn', 'Veil of Starlight', 'The Argent Mirror', 'Astral Diadem', 'Leywalker', 'The Silver Thread'],
+  nightblade: ['Widow’s Whisper', 'Nightweave', 'Shadowguard', 'The Faceless Mask', 'Silent Footfall', 'The Unseen Hand'],
+  oathkeeper: ['Dawn’s Vow', 'The Pilgrim’s Mantle', 'Mercy’s Aegis', 'Halo of Witness', 'The Long Pilgrimage', 'Light’s Promise']
+};
+// Rank motifs follow the campaign. Each class has four sets of equipment silhouettes.
+const GEAR_MOTIFS = [
+  'Briar', 'Hushbell', 'Sunstep', 'Undertow', 'Furnace', 'Harrowfrost', 'Thorncourt', 'Moonwork',
+  'Saffron', 'Ivoryspire', 'Zodiac', 'Belfry', 'Vermilion', 'Palewake', 'Hammerdeep', 'Gilded Tomb',
+  'Reedwater', 'Amberwake', 'Venombloom', 'Moonglass', 'Bloodcaldera', 'Blackglass', 'Brasswind', 'Penitent',
+  'Violet Deep', 'Mireward', 'Meridian', 'Stringbound', 'Jadeveil', 'Red Dominion', 'Firmament', 'Eventide'
+] as const;
+const CLASS_GEAR: Record<Exclude<HeroId, 'vanguard'>, readonly GearNames[]> = {
+  hexweaver: [
+    ['Spellfoil', 'Threadcloak', 'Focus Mirror', 'Witch Hat', 'Ley Treads', 'Runeband'],
+    ['Rune Épée', 'Silk Robes', 'Scrying Disc', 'Seer’s Hood', 'Spellstep Shoes', 'Glyph Loop'],
+    ['Sigil Rapier', 'Astral Mantle', 'Prism Ward', 'Weaver’s Veil', 'Leywalkers', 'Orbit Ring'],
+    ['Voidfoil', 'Starwoven Shroud', 'Null Mirror', 'Oracle’s Diadem', 'Astral Slippers', 'Witch’s Signet']
+  ],
+  nightblade: [
+    ['Shiv', 'Shadow Jerkin', 'Parrying Dagger', 'Cutpurse Hood', 'Softsoles', 'Viper Band'],
+    ['Stiletto', 'Duskleather Vest', 'Fencer’s Guard', 'Sable Mask', 'Hushstep Shoes', 'Lockpick Loop'],
+    ['Talon Knife', 'Shade Harness', 'Sleeve Buckler', 'Specter Cowl', 'Roofrunner Boots', 'Poison Ring'],
+    ['Nightfang', 'Phantom Leathers', 'Hidden Parry', 'Faceless Veil', 'Silent Striders', 'Assassin’s Token']
+  ],
+  oathkeeper: [
+    ['Sidesword', 'Pilgrim’s Tabard', 'Votive Shield', 'Lay Brother’s Cowl', 'Wayfarer Sandals', 'Prayer Bead'],
+    ['Sanctified Saber', 'Chapel Mail', 'Reliquary Ward', 'Abbot’s Hood', 'Vigil Boots', 'Prayer Ring'],
+    ['Dawn Falchion', 'Vesper Vestments', 'Procession Shield', 'Votive Circlet', 'Shrinewalkers', 'Mercy Band'],
+    ['Judgment Blade', 'Saint’s Cuirass', 'Beacon Aegis', 'Lightbearer’s Halo', 'Pilgrim Greaves', 'Oath Seal']
+  ]
+};
 export const gearId = (gear: Gear) => gear.slot + ':' + gear.tier + ':' + Number(gear.relic);
 
-export function gearName(gear: Gear): string {
-  const i = GEAR_SLOTS.indexOf(gear.slot);
-  const rank = GEAR_NAMES_BY_RANK[gear.tier - 1]!;
-  return gear.relic ? RELICS[i]! + ' of ' + rank[0] : rank[i + 1]!;
+export function gearName(gear: Gear, hero: HeroId): string {
+  const slot = GEAR_SLOTS.indexOf(gear.slot);
+  const index = gear.tier - 1;
+  const rank = GEAR_NAMES_BY_RANK[index]!;
+  if (gear.relic) return RELICS[hero][slot]! + ' of ' + rank[0];
+  if (hero === 'vanguard') return rank[slot + 1]!;
+  return GEAR_MOTIFS[index]! + ' ' + CLASS_GEAR[hero][Math.floor(index / 8)]![slot]!;
 }
 
 export function gearBonus(gear: Gear): Partial<Stats> {

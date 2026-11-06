@@ -399,8 +399,8 @@ function battleEvent(event: BattleEvent): void {
       paceHint = '';
       if (event.essence || event.loot || battle?.foe.boss) void playSound('reward');
       if (event.essence && !event.loot) toast('+' + event.essence + ' Arcane Essence');
-      if (event.loot) toast('Relic found · ' + gearName(event.loot));
-      rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
+      if (event.loot) toast('Relic found · ' + gearName(event.loot, current().hero));
+      rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot, current().hero) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
       save();
       break;
@@ -487,7 +487,7 @@ function gearView(): void {
       const items = r.inventory.filter(item => item.slot === g).sort((a, b) => b.tier - a.tier || Number(b.relic) - Number(a.relic));
       const equipped = items.find(item => r.equipped[g] === gearId(item));
       return `<label class="gear-row"><span><strong>${GEAR_NAMES[g]}</strong><small>${equipped ? bonusText(equipped) : 'No bonuses equipped'}</small></span>
-        <select data-equip="${g}" aria-label="${GEAR_NAMES[g]}"><option value="">Unequipped</option>${items.map(item => `<option value="${gearId(item)}" ${item === equipped ? 'selected' : ''}>${gearName(item)} · Rank ${item.tier}</option>`).join('')}</select></label>`;
+        <select data-equip="${g}" aria-label="${GEAR_NAMES[g]}"><option value="">Unequipped</option>${items.map(item => `<option value="${gearId(item)}" ${item === equipped ? 'selected' : ''}>${gearName(item, r.hero)} · Rank ${item.tier}</option>`).join('')}</select></label>`;
     }).join('')}</div>`;
   } else if (gearTab === 'workshop') {
     body = `<div class="sheet-caption"><span>ARCANE WORKSHOP</span><span class="coin">◆ ${fmt(r.essence)} Essence</span></div>
@@ -506,9 +506,9 @@ function gearView(): void {
       <div class="gear-list">${GEAR_SLOTS.map(g => {
         const gear = {slot: g, tier: shopTier, relic: false};
         const owned = r.inventory.some(item => gearId(item) === gearId(gear));
-        const price = gearPrice(gear);
-        return `<div class="gear-row"><span><strong>${gearName(gear)}</strong><small>${bonusText(gear)}</small></span>
-          <button class="compact" data-action="buy" data-id="${g}" ${owned || r.gold < price ? 'disabled' : ''} aria-label="${owned ? gearName(gear) + ' owned' : 'Buy ' + gearName(gear) + ' for ' + price + ' gold'}">${owned ? 'Owned' : '◆ ' + fmt(price)}</button></div>`;
+        const price = gearPrice(gear), name = gearName(gear, r.hero);
+        return `<div class="gear-row"><span><strong>${name}</strong><small>${bonusText(gear)}</small></span>
+          <button class="compact" data-action="buy" data-id="${g}" ${owned || r.gold < price ? 'disabled' : ''} aria-label="${owned ? name + ' owned' : 'Buy ' + name + ' for ' + price + ' gold'}">${owned ? 'Owned' : '◆ ' + fmt(price)}</button></div>`;
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
@@ -723,7 +723,7 @@ app.addEventListener('click', event => {
         save();
         updateHud();
         gearView();
-        toast((autoEquip ? 'Equipped ' : 'Purchased ') + gearName(gear) + '.');
+        toast((autoEquip ? 'Equipped ' : 'Purchased ') + gearName(gear, current().hero) + '.');
         notifyAchievements();
       }
       break;

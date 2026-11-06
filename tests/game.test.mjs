@@ -190,19 +190,22 @@ test('Shop and Workshop open only after defeat', () => {
 });
 
 
-test('All gear ranks have distinct names for every slot and relic', () => {
+test('Every class, rank, slot and relic has a distinct equipment name', () => {
   const names = new Set();
-  for (let tier = 1; tier <= WAVE_COUNT; tier++) {
-    for (const slot of GEAR_SLOTS) {
-      for (const relic of [false, true]) {
-        const name = gearName({ slot, tier, relic });
-        assert.ok(name);
-        assert.ok(!names.has(name), name);
-        names.add(name);
+  for (const hero of HERO_IDS) {
+    for (let tier = 1; tier <= WAVE_COUNT; tier++) {
+      for (const slot of GEAR_SLOTS) {
+        for (const relic of [false, true]) {
+          const name = gearName({ slot, tier, relic }, hero);
+          assert.ok(name);
+          assert.ok(!names.has(name), name);
+          names.add(name);
+        }
       }
     }
   }
-  assert.equal(names.size, 384);
+  assert.equal(names.size, HERO_IDS.length * WAVE_COUNT * GEAR_SLOTS.length * 2);
+  assert.equal(gearName({slot:'weapon', tier:1, relic:false}, 'vanguard'), 'Iron Blade');
 });
 
 test('Affinities modify damage, and campaign immunities never conflict with a required seal', () => {

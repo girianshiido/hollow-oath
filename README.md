@@ -11,7 +11,7 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 - Marked foes and guardians grant Arcane Essence on their first defeat. The Workshop and Shop open only after a defeat, before retrying. Spend Essence to learn Aegis or Thunder Verdict and to unlock spell ranks II and III. The Grimoire always casts the highest learned level. Higher ranks cost more MP.
 - Existing saves migrate when loaded. They retain their hero, equipment, battle and XP and receive Essence for already cleared guardians.
 - Victory advances immediately after the defeat animation. HP carries between encounters and refills when starting a wave. Falling restarts the current wave at encounter 1 and preserves experience, gold and gear. The final wave is replayable.
-- Open the armory with the top-left button. The Shop opens after a defeat, before retrying. Its Auto-equip purchases checkbox can equip each purchase immediately. It sells weapons, armor, shields, helmets, boots and rings. Some guardians drop relics. The top-right button opens the pause menu.
+- Open the armory with the top-left button. The Shop opens after a defeat, before retrying. Its Auto-equip purchases checkbox can equip each purchase immediately. It sells weapons, armor, shields, helmets, boots and rings, with names and relic titles tailored to your class. Some guardians drop relics. The top-right button opens the pause menu.
 - Open the pause menu to mute sound effects, adjust the volume, or hear a test strike. The settings are saved on this browser. See [sound credits](AUDIO.md).
 - Four local autosave files. Use Export backup in the pause menu and Import a backup on the Load Game screen to move an oath between devices or browsers.
 
