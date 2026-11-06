@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
-import { activeSeal, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, resumeWave, stats } from '../src/engine.ts';
+import { activeSeal, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats } from '../src/engine.ts';
 import { decode, serialize } from '../src/saves.ts';
 
 function at(wave, step, level = 15) {
@@ -108,13 +108,13 @@ test('Death retries the same wave at 1 and retains experience, gold and gear', (
   r.xp = 30;
   r.gold = 500;
   const gear = {slot: 'weapon', tier: 2, relic: false};
-  assert.ok(buyGear(r, gear));
-  equipGear(r, gear, 'weapon');
   const battle = new Battle(r, () => {});
   battle.foe.spd = 3;
   battle.tick(5);
   assert.equal(r.phase, 'fallen');
   assert.equal(r.step, 25);
+  assert.ok(buyGear(r, gear));
+  equipGear(r, gear, 'weapon');
   resumeWave(r);
   assert.equal(r.wave, 2);
   assert.equal(r.step, 1);
@@ -130,7 +130,8 @@ test('Purchasing and equipping respect gold, wave, ownership and the gear slot',
   assert.equal(buyGear(r, item), false);
   r.gold = 500;
   assert.equal(buyGear(r, item), false);
-  r.step = 9;
+  r.phase = 'fallen';
+  r.hp = 0;
   assert.equal(buyGear(r, {...item,tier:2}), false);
   assert.equal(buyGear(r, item), true);
   assert.equal(buyGear(r, item), false);
@@ -164,16 +165,23 @@ test('A fallen guardian automatically opens the next wave', () => {
   assert.equal(r.hp, stats(r).hp);
 });
 
-test('Shop only opens at marked camps or after defeat', () => {
+test('Shop and Workshop open only after defeat', () => {
   const r = newRun('vanguard');
-  for (let step = 1; step <= 32; step++) {
-    r.step = step;
-    assert.equal(canShop(r), [9, 10, 17, 18, 25, 26].includes(step));
+  r.gold = 200;
+  r.essence = 4;
+  for (const phase of ['fight', 'clear', 'victory']) {
+    r.phase = phase;
+    for (let step = 1; step <= 32; step++) {
+      r.step = step;
+      assert.equal(canShop(r), false);
+      assert.equal(buySpell(r, 'ember'), false);
+      assert.equal(buyGear(r, {slot:'ring', tier:1, relic:false}), false);
+    }
   }
   r.phase = 'clear';
   assert.equal(canShop(r), false);
   r.phase = 'fallen';
-  r.gold = 200;
+  r.hp = 0;
   assert.equal(canShop(r), true);
   assert.ok(buyGear(r, {slot:'ring', tier:1, relic:false}));
   resumeWave(r);
@@ -234,19 +242,22 @@ test('Essence is awarded once per marked encounter, even after retrying the same
   assert.equal(run.kills, 2);
 });
 
-test('Workshop purchases obey the camp and rank rules, and casting rank changes cost', () => {
+test('Upgrades immediately increase the prepared spell cost', () => {
   const run = at(2, 1, 12);
   run.essence = 15;
   assert.equal(buySpell(run, 'aegis'), false);
-  run.step = 9;
+  run.phase = 'fallen';
+  run.hp = 0;
   assert.equal(buySpell(run, 'aegis'), true);
   assert.equal(buySpell(run, 'ember'), true);
   assert.equal(knownRank(run, 'ember'), 2);
   assert.equal(buySpell(run, 'ember'), false);
+  assert.equal(preparedSpellCost(run), 6);
+  resumeWave(run);
+  run.wait = 0;
   const battle = new Battle(run, () => {});
   battle.foe.hp = run.foeHp = 2000;
   run.mode = 'magic';
-  run.castRank = 2;
   run.mp = 6;
   battle.tick(1.1);
   assert.equal(run.mode, 'steel');
@@ -277,15 +288,32 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   run.xp = 42;
   run.gold = 801;
   const old = {...run};
-  for (const key of ['ward','essence','essenceClaims','spellRanks','castRank']) delete old[key];
+  for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 2);
+  assert.equal(migrated?.version, 3);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
   assert.equal(migrated.run.foeHp, run.foeHp);
   assert.equal(migrated.run.essence, 12);
-  assert.equal(migrated.run.castRank, 1);
+  assert.equal(preparedSpellCost(migrated.run), 4);
   assert.deepEqual(migrated.run.essenceClaims, [32,64,96,128]);
   assert.deepEqual(decode(serialize(migrated.run))?.run, migrated.run);
+});
+
+
+test('A legacy choice of a lower casting rank is replaced by the learned maximum', () => {
+  const run = at(5, 9, 22);
+  run.spellRanks.ember = 3;
+  const old = {...run, castRank: 1};
+  const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
+  assert.equal(migrated?.version, 3);
+  assert.equal(preparedSpellCost(migrated.run), 8);
+  assert.equal('castRank' in migrated.run, false);
+  migrated.run.mode = 'magic';
+  migrated.run.mp = 4;
+  const battle = new Battle(migrated.run, () => {});
+  battle.tick(1.1);
+  assert.equal(migrated.run.mode, 'steel');
+  assert.ok(migrated.run.mp >= 4);
 });

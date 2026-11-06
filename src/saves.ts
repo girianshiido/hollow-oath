@@ -3,15 +3,15 @@ import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
 export const SLOT_COUNT = 3;
-export interface Save { version: 2; updated: number; run: Run }
+export interface Save { version: 3; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
 export function decode(text: string): Save | null {
   try {
-    const raw = JSON.parse(text) as {version: number; updated: number; run: Run};
-    if (!raw || ![1, 2].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 2, updated: raw.updated, run: raw.run};
+    const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
+    if (!raw || ![1, 2, 3].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 3, updated: raw.updated, run: raw.run};
     const r = data.run;
     if (!r || !HERO_IDS.includes(r.hero) || !numeric(r.level, 1, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.xp, 0, xpGoal(r.level) - 1, true) || !numeric(r.gold, 0, Number.MAX_SAFE_INTEGER, true) ||
@@ -28,7 +28,6 @@ export function decode(text: string): Save | null {
       r.essenceClaims = Array.from({length: cleared}, (_, index) => (index + 1) * ENCOUNTER_COUNT);
       r.essence = cleared * 3;
       r.spellRanks = {};
-      r.castRank = 1;
       r.ward = 0;
     }
     if (!numeric(r.essence, 0, WAVE_COUNT * 6, true) || !Array.isArray(r.essenceClaims) ||
@@ -48,7 +47,8 @@ export function decode(text: string): Save | null {
       if (!Object.hasOwn(SPELLS, id) || !numeric(rank, 1, MAX_SPELL_RANK, true) ||
         SPELLS[id as keyof typeof SPELLS].level > r.level) return null;
     }
-    if (!numeric(r.castRank, 1, knownRank(r, r.spell), true)) return null;
+    if (!knownRank(r, r.spell)) return null;
+    delete raw.run.castRank;
     const gearIds = new Set<string>();
     for (const gear of r.inventory) {
       if (!gear || !GEAR_SLOTS.includes(gear.slot) || !numeric(gear.tier, 1, r.wave, true) || typeof gear.relic !== 'boolean') return null;
@@ -84,5 +84,5 @@ export function writeSlot(index: number, run: Run): boolean {
   } catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 2, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 3, updated: Date.now(), run} satisfies Save);
 }

@@ -8,7 +8,7 @@ export interface Run {
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
-  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; castRank: number; ward: number;
+  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number;
   phase: Phase; wait: number; inventory: Gear[]; equipped: Partial<Record<GearSlot, string>>;
 }
 export type BattleEvent =
@@ -56,7 +56,7 @@ export function newRun(hero: HeroId): Run {
     hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
-    essence: 0, essenceClaims: [], spellRanks: {}, castRank: 1, ward: 0,
+    essence: 0, essenceClaims: [], spellRanks: {}, ward: 0,
     phase: 'fight', wait: 0, inventory: [], equipped: {}
   };
   openEncounter(run);
@@ -77,15 +77,16 @@ export function resumeWave(run: Run): void {
   openEncounter(run);
 }
 
-export const CAMP_STARTS = [9, 17, 25] as const;
 export function canShop(run: Run): boolean {
-  return run.phase === 'fallen' ||
-    (run.phase === 'fight' && CAMP_STARTS.some(step => run.step === step || run.step === step + 1));
+  return run.phase === 'fallen';
 }
 
 export function knownRank(run: Run, id: SpellId): number {
   const spell = SPELLS[id];
   return run.level < spell.level ? 0 : (run.spellRanks[id] ?? (spell.price ? 0 : 1));
+}
+export function preparedSpellCost(run: Run): number {
+  return spellCost(run.spell, knownRank(run, run.spell));
 }
 export function workshopPrice(run: Run, id: SpellId): number | undefined {
   const rank = knownRank(run, id);
@@ -209,8 +210,9 @@ export class Battle {
   private playerTurn(): void {
     const run = this.run;
     const spell = SPELLS[run.spell];
-    const cost = spellCost(run.spell, run.castRank);
-    const boost = 1 + (run.castRank - 1) * 0.24;
+    const rank = knownRank(run, run.spell);
+    const cost = spellCost(run.spell, rank);
+    const boost = 1 + (rank - 1) * 0.24;
     let strike: Strike = 'steel';
     const shouldCast = run.spell === 'mend'
       ? this.player.hp - run.hp >= Math.min(this.player.hp * 0.2, this.healPower())

@@ -6,7 +6,7 @@ import {
   HEROES, HERO_IDS, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, availableEssence, Battle, buyGear, buySpell, CAMP_STARTS, canShop, equipGear, knownRank, newRun, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import { decode, readSlot, serialize, SLOT_COUNT, writeSlot, type Save } from './saves.ts';
@@ -153,7 +153,7 @@ function help(): void {
     <p><strong>Sword and grimoire.</strong> Tap to switch. Hold the grimoire or tap its caret to choose a spell. On a keyboard, use <kbd>1</kbd> for steel, <kbd>2</kbd> for magic and <kbd>3</kbd> for the spell list. When mana runs low, steel takes over. Tap the grimoire again once you have enough MP.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Some bosses raise a new seal as their HP falls. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
-    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The shop and Workshop open at encounters 9–10, 17–18 and 25–26, and after a defeat before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their rank. The next wave begins with full HP and MP.</p>
+    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. The Grimoire always casts the highest level you have learned. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
 }
@@ -168,7 +168,7 @@ function startArena(run: Run): void {
   mount('arena', `<main class="frame arena" tabindex="-1">
     <div id="world" class="world" aria-hidden="true"></div>
     <header class="battle-head">
-      <button class="round" id="armory-button" data-action="gear" aria-label="Armory" title="Character and equipment">${icon('bag')}</button>
+      <button class="round" data-action="gear" aria-label="Armory" title="Character and equipment">${icon('bag')}</button>
       <div class="wave-title"><span class="kicker" id="wave-index"></span><strong id="wave-name"></strong></div>
       <button class="round" data-action="options" aria-label="Options" title="Options">${icon('dots')}</button>
     </header>
@@ -286,7 +286,7 @@ function updateHud(): void {
   find('steel').setAttribute('aria-pressed', String(r.mode === 'steel'));
   find('book').setAttribute('aria-pressed', String(r.mode === 'magic'));
   find('book').style.setProperty('--spell', SPELLS[r.spell].color);
-  find('selected-spell').textContent = SPELLS[r.spell].name + (r.castRank > 1 ? ' ' + ROMAN[r.castRank - 1] : '');
+  find('selected-spell').textContent = spellLabel(r, r.spell);
   const seal = r.phase === 'fight' ? activeSeal(r, foe) : undefined;
   const sealKey = seal ? seal + ':' + r.broken : '';
   if (sealKey !== displaySeal) {
@@ -299,9 +299,7 @@ function updateHud(): void {
     displayPhase = r.phase;
     outcome();
   }
-  const atCamp = r.phase === 'fight' && canShop(r);
-  find('armory-button').classList.toggle('camp-open', atCamp);
-  find('combat-line').textContent = paceHint || (atCamp ? 'Camp nearby · Shop & Workshop open' : rewardLine) || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + spellCost(r.spell, r.castRank) + ' MP per cast');
+  find('combat-line').textContent = paceHint || rewardLine || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + preparedSpellCost(r) + ' MP per cast');
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
@@ -402,7 +400,6 @@ function battleEvent(event: BattleEvent): void {
       rewardLine = '';
       paceHint = '';
       displayEncounter();
-      if (CAMP_STARTS.some(step => current().step === step)) toast('Camp nearby · Shop & Workshop open in the Armory');
       save();
       break;
     case 'armed':
@@ -414,28 +411,26 @@ function battleEvent(event: BattleEvent): void {
       break;
   }
 }
-const ROMAN = ['I', 'II', 'III'] as const;
+function spellLabel(run: Run, id: SpellId): string {
+  const rank = knownRank(run, id);
+  return SPELLS[id].name + (rank ? ' Lvl ' + rank : '');
+}
 function showSpells(): void {
   if (!battle || current().phase !== 'fight') return;
   const r = current();
   openDialog('spells', 'The Grimoire', `<div class="sheet-caption"><span>${fmt(Math.floor(r.mp))} / ${fmt(battle.player.mp)} MP</span><span>CHOOSE A SPELL</span></div>
     <div class="spell-list">${SPELL_IDS.map(id => {
       const s = SPELLS[id], rank = knownRank(r, id);
-      const selected = r.spell === id ? r.castRank : 1;
-      return `<div class="prepared-spell">
-        <button class="spell-row" data-action="spell" data-id="${id}" ${!rank ? 'disabled' : ''} style="--spell:${s.color}">
-          <span class="spell-symbol">${icon(id)}</span><span><strong>${s.name}</strong><small>${s.text}</small></span>
-          <span class="spell-cost">${!rank ? icon('lock') + (s.level > r.level ? ' LV ' + s.level : ' Workshop') : rank === 1 ? spellCost(id, 1) + ' MP' : ''}</span></button>
-        ${rank > 1 ? `<label class="cast-rank">Cast at <select id="cast-${id}" aria-label="${s.name} casting rank">${Array.from({length: rank}, (_, i) =>
-          `<option value="${i + 1}" ${selected === i + 1 ? 'selected' : ''}>${ROMAN[i]} · ${spellCost(id, i + 1)} MP</option>`).join('')}</select></label>` : ''}
-      </div>`;
+      return `<button class="spell-row" data-action="spell" data-id="${id}" ${!rank ? 'disabled' : ''} style="--spell:${s.color}">
+        <span class="spell-symbol">${icon(id)}</span><span><strong>${spellLabel(r, id)}</strong><small>${s.text}</small></span>
+        <span class="spell-cost">${!rank ? icon('lock') + (s.level > r.level ? ' LV ' + s.level : ' Workshop') : spellCost(id, rank) + ' MP'}</span></button>`;
     }).join('')}</div><p class="sheet-foot">Choose a spell to prepare and switch to magic. Combat pauses while this book is open.</p>`, 'ARCANE ARTS');
 }
 function mode(value: 'steel' | 'magic'): void {
   if (!battle || current().phase !== 'fight') return;
   const r = current();
-  if (value === 'magic' && r.mp + 1e-8 < spellCost(r.spell, r.castRank)) {
-    paceHint = 'Need ' + spellCost(r.spell, r.castRank) + ' MP for ' + SPELLS[r.spell].name;
+  if (value === 'magic' && r.mp + 1e-8 < preparedSpellCost(r)) {
+    paceHint = 'Need ' + preparedSpellCost(r) + ' MP for ' + spellLabel(r, r.spell);
     r.mode = 'steel';
   } else {
     r.mode = value;
@@ -492,11 +487,11 @@ function gearView(): void {
         const s = SPELLS[id], rank = knownRank(r, id), price = workshopPrice(r, id);
         const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? 'Max rank' : '◆ ' + price;
         const action = (rank ? 'Upgrade ' : 'Learn ') + s.name;
-        return `<div class="gear-row"><span><strong>${s.name}${rank ? ' · ' + ROMAN[rank - 1] : ''}</strong>
+        return `<div class="gear-row"><span><strong>${spellLabel(r, id)}</strong>
           <small>${s.text}</small>
           ${price === undefined ? '' : `<small>${rank ? 'Next rank · ' : 'Learn · '}${spellCost(id, rank + 1)} MP per cast</small>`}</span>
           <button class="compact" data-action="buy-spell" data-id="${id}" ${price === undefined || r.essence < price ? 'disabled' : ''} aria-label="${price === undefined ? status : action + ' for ' + price + ' Arcane Essence'}">${status}</button></div>`;
-      }).join('')}</div><p class="sheet-foot">Higher ranks cost more MP. Choose any learned rank in the Grimoire. Marked foes and guardians yield Essence once per file.</p>`;
+      }).join('')}</div><p class="sheet-foot">The Grimoire always casts the highest learned level. Upgrades raise MP costs. Marked foes and guardians yield Essence once per file.</p>`;
   } else {
     body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
       <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
@@ -509,7 +504,7 @@ function gearView(): void {
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
-    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">Shop and Workshop open at encounters 9–10, 17–18 and 25–26, or after a defeat.</p>'}${body}`, shopOpen ? 'TRAVELLER’S CAMP' : 'EQUIPMENT');
+    `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">The Shop and Workshop open after a defeat, before you retry.</p>'}${body}`, shopOpen ? 'RECOVERY CAMP' : 'EQUIPMENT');
 }
 function options(): void {
   const sound = audioSettings();
@@ -660,7 +655,7 @@ app.addEventListener('click', event => {
       if (buySpell(current(), spell)) {
         save();
         gearView();
-        toast(SPELLS[spell].name + ' · ' + ROMAN[knownRank(current(), spell) - 1]);
+        toast(spellLabel(current(), spell));
       }
       break;
     }
@@ -686,10 +681,8 @@ app.addEventListener('click', event => {
     case 'spells': showSpells(); break;
     case 'spell': {
       const spell = id as SpellId;
-      const rank = Number(find<HTMLSelectElement>('cast-' + spell)?.value ?? 1);
-      if (rank > knownRank(current(), spell)) break;
+      if (!knownRank(current(), spell)) break;
       current().spell = spell;
-      current().castRank = rank;
       mode('magic');
       close();
       break;
