@@ -1,6 +1,7 @@
 import { HEROES, SEALS, type HeroId, type Strike } from './content.ts';
 
-type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal'; start: number; seeds: number[]};
+type BladeVariant = 0 | 1 | 2;
+type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal'; start: number; seeds: number[]; blade: BladeVariant};
 const COLORS: Record<Effect['kind'], string> = {
   steel: '#ffe6ba', ember: '#ff924c', rime: '#9fe9ff', storm: '#d1adff',
   heal: '#9effc1', hurt: '#ff604d', seal: '#ffe4a3'
@@ -9,11 +10,16 @@ const COLORS: Record<Effect['kind'], string> = {
 const BLADE_DURATION: Record<HeroId, number> = {
   vanguard: 440, hexweaver: 355, nightblade: 335, oathkeeper: 530
 };
-function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: number,
+const BLADE_ANGLES: Record<HeroId, readonly [number, number, number]> = {
+  vanguard: [0, -.7, .64], hexweaver: [0, .53, -.55],
+  nightblade: [0, .68, -.44], oathkeeper: [0, -.72, .78]
+};
+function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, variant: BladeVariant, x: number, y: number,
   size: number, t: number, color: string): void {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size, size);
+  ctx.rotate(BLADE_ANGLES[hero][variant]);
   ctx.shadowColor = color;
   ctx.shadowBlur = 13;
   const fade = 1 - t;
@@ -23,8 +29,13 @@ function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: nu
     case 'vanguard': {
       // A heavy diagonal cut with a broad, incandescent leading edge.
       const drop = Math.min(1, t * 5) * .14;
-      ctx.moveTo(-.29, -.35 + drop);
-      ctx.quadraticCurveTo(-.04, -.25 + drop, .29, .29 + drop);
+      if (variant === 2) {
+        ctx.moveTo(-.39, .04 + drop);
+        ctx.quadraticCurveTo(.04, -.36 + drop, .32, -.11 + drop);
+      } else {
+        ctx.moveTo(-.29, -.35 + drop);
+        ctx.quadraticCurveTo(-.04, -.25 + drop, .29, .29 + drop);
+      }
       ctx.lineWidth = .034 * fade;
       ctx.stroke();
       ctx.shadowBlur = 3;
@@ -37,7 +48,8 @@ function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: nu
       // A slender rapier thrust and a violet diamond on impact.
       const reach = Math.min(1, t * 5) * .34;
       ctx.moveTo(-.44 + reach, .20 - reach * .42);
-      ctx.lineTo(.11 + reach, -.034 - reach * .42);
+      if (variant === 2) ctx.quadraticCurveTo(-.14 + reach, -.19, .11 + reach, -.034 - reach * .42);
+      else ctx.lineTo(.11 + reach, -.034 - reach * .42);
       ctx.stroke();
       const r = .045 + t * .15;
       ctx.translate(.12, -.045);
@@ -57,7 +69,8 @@ function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: nu
       if (t >= .12) {
         ctx.beginPath();
         ctx.moveTo(-.29 - dash, -.16);
-        ctx.quadraticCurveTo(-.01 - dash, .13, .28 - dash, .21);
+        if (variant === 2) ctx.quadraticCurveTo(-.01 - dash, -.23, .28 - dash, -.33);
+        else ctx.quadraticCurveTo(-.01 - dash, .13, .28 - dash, .21);
         ctx.lineWidth = .007 * fade;
         ctx.stroke();
       }
@@ -66,8 +79,9 @@ function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: nu
     case 'oathkeeper': {
       // A rising crescent followed by a short halo along the blade path.
       const lift = Math.min(1, t * 4) * .17;
+      if (variant === 1) ctx.scale(-1, 1);
       ctx.moveTo(-.36, .20 - lift);
-      ctx.quadraticCurveTo(.22, .38 - lift, .27, -.28 - lift);
+      ctx.quadraticCurveTo(.22, .38 - lift, variant === 2 ? .38 : .27, -.28 - lift);
       ctx.lineWidth = .018 * fade;
       ctx.stroke();
       ctx.beginPath();
@@ -83,6 +97,7 @@ function drawBlade(ctx: CanvasRenderingContext2D, hero: HeroId, x: number, y: nu
 export class Effects {
   private canvas: HTMLCanvasElement;
   private hero: HeroId;
+  private nextBlade: BladeVariant = 0;
   private ctx: CanvasRenderingContext2D | null;
   private effects: Effect[] = [];
   private width = 0;
@@ -107,7 +122,8 @@ export class Effects {
     this.ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   add(kind: Effect['kind']): void {
-    this.effects.push({kind, start: performance.now(), seeds: Array.from({length: 16}, () => Math.random())});
+    this.effects.push({kind, start: performance.now(), seeds: Array.from({length: 16}, () => Math.random()), blade: this.nextBlade});
+    if (kind === 'steel') this.nextBlade = ((this.nextBlade + 1) % 3) as BladeVariant;
   }
   draw(now: number): void {
     const {ctx, width: w, height: h, effects} = this;
@@ -129,7 +145,7 @@ export class Effects {
       ctx.fillStyle = color;
       ctx.globalAlpha = a;
       if (e.kind === 'steel') {
-        drawBlade(ctx, this.hero, x, y, size, t, color);
+        drawBlade(ctx, this.hero, e.blade, x, y, size, t, color);
       } else if (e.kind === 'storm') {
         ctx.lineWidth = 3 * a;
         ctx.shadowColor = color; ctx.shadowBlur = 18;

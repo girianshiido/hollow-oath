@@ -1,18 +1,32 @@
-import { CHRONICLE_COUNTERS, newChronicle } from './achievements.ts';
+import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle, profileFromRun, TOTAL_KEYS, type AchievementProfile } from './achievements.ts';
 import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HERO_IDS, MAX_SPELL_RANK, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
-export const SLOT_COUNT = 4;
-export interface Save { version: 5; updated: number; run: Run }
+const HISTORY = 'hollow-oath.chronicle.';
+const validRunId = (id: unknown): id is string => typeof id === 'string' && /^(?:run-[a-z0-9-]{7,32}|legacy-[a-z0-9]{2,14})$/.test(id);
+export interface Save { version: 6; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
+
+function legacyRunId(run: Run): string {
+  // Old exports have no identifier. Ignore the envelope date and object key order.
+  const source = JSON.stringify(run, (_, value) => value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+  let first = 2166136261, second = 5381;
+  for (let i = 0; i < source.length; i++) {
+    const code = source.charCodeAt(i);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second, 33) ^ code;
+  }
+  return 'legacy-' + (first >>> 0).toString(36) + (second >>> 0).toString(36);
+}
 
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4, 5].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 5, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5, 6].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 6, updated: raw.updated, run: raw.run};
     const r = data.run;
     if (!r || !HERO_IDS.includes(r.hero) || !numeric(r.level, 1, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.xp, 0, xpGoal(r.level) - 1, true) || !numeric(r.gold, 0, Number.MAX_SAFE_INTEGER, true) ||
@@ -23,6 +37,8 @@ export function decode(text: string): Save | null {
       !['fight', 'fallen', 'clear', 'victory'].includes(r.phase) ||
       !Array.isArray(r.inventory) || r.inventory.length > WAVE_COUNT * 12 || !r.equipped ||
       typeof r.equipped !== 'object' || Array.isArray(r.equipped)) return null;
+    if (raw.version < 6) r.runId = legacyRunId(r);
+    if (!validRunId(r.runId)) return null;
     if (raw.version === 1) {
       if (SPELLS[r.spell].price) return null;
       const cleared = r.phase === 'clear' || r.phase === 'victory' ? r.wave : r.wave - 1;
@@ -101,16 +117,81 @@ export function decode(text: string): Save | null {
   }
 }
 
-export function readSlot(index: number): Save | null {
-  try { return decode(localStorage.getItem(PREFIX + index) ?? ''); }
+function storageIds(prefix: string): string[] {
+  const ids: string[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(prefix)) ids.push(key.slice(prefix.length));
+    }
+  } catch { /* Storage is optional. */ }
+  return ids;
+}
+export function readSlot(id: string): Save | null {
+  try { return decode(localStorage.getItem(PREFIX + id) ?? ''); }
   catch { return null; }
 }
-export function writeSlot(index: number, run: Run): boolean {
+export function listSlots(): {id: string; data: Save | null}[] {
+  return storageIds(PREFIX).filter(id => validRunId(id) || /^\d+$/.test(id))
+    .map(id => ({id, data: readSlot(id)}))
+    .sort((a, b) => (b.data?.updated ?? 0) - (a.data?.updated ?? 0) || a.id.localeCompare(b.id));
+}
+function readHistory(id: string): AchievementProfile | null {
   try {
-    localStorage.setItem(PREFIX + index, serialize(run));
+    const p = JSON.parse(localStorage.getItem(HISTORY + id) ?? 'null') as AchievementProfile | null;
+    const count = (value: unknown) => numeric(value, 0, Number.MAX_SAFE_INTEGER, true);
+    if (!p || !p.totals || !p.best || !p.spells ||
+      !TOTAL_KEYS.every(key => count(p.totals[key])) || !BEST_KEYS.every(key => count(p.best[key])) ||
+      !SPELL_IDS.every(key => count(p.spells[key])) ||
+      !Array.isArray(p.victories) || p.victories.length > HERO_IDS.length || !p.victories.every(hero => HERO_IDS.includes(hero)) ||
+      (p.fastest !== null && !numeric(p.fastest, 0, Number.MAX_SAFE_INTEGER))) return null;
+    return p;
+  } catch { return null; }
+}
+function archive(run: Run): boolean {
+  try {
+    const key = HISTORY + run.runId;
+    const prior = readHistory(run.runId);
+    const record = prior ?? emptyProfile();
+    const before = prior && JSON.stringify(prior);
+    mergeProfile(record, profileFromRun(run), true);
+    const next = JSON.stringify(record);
+    if (before !== next) localStorage.setItem(key, next);
     return true;
   } catch { return false; }
 }
+export function achievementHistory(activeId?: string): {other: AchievementProfile; prior: AchievementProfile} {
+  const entries = new Map<string, AchievementProfile>();
+  for (const id of storageIds(HISTORY).filter(validRunId)) {
+    const history = readHistory(id);
+    if (history) entries.set(id, history);
+  }
+  // Import achievements from legacy saves and include saves that could not be archived due to storage limits.
+  for (const {data} of listSlots()) {
+    if (!data) continue;
+    const id = data.run.runId;
+    const record = entries.get(id) ?? emptyProfile();
+    mergeProfile(record, profileFromRun(data.run), true);
+    entries.set(id, record);
+  }
+  const other = emptyProfile();
+  for (const [id, record] of entries) if (id !== activeId) mergeProfile(other, record);
+  return {other, prior: (activeId && entries.get(activeId)) || emptyProfile()};
+}
+export function writeSlot(id: string, run: Run, allowCreate = true): boolean {
+  try {
+    if (!allowCreate && localStorage.getItem(PREFIX + id) === null) return false;
+    localStorage.setItem(PREFIX + id, serialize(run));
+    archive(run);
+    return true;
+  } catch { return false; }
+}
+export function deleteSlot(id: string): boolean {
+  const data = readSlot(id);
+  if (data && !archive(data.run)) return false;
+  try { localStorage.removeItem(PREFIX + id); return true; }
+  catch { return false; }
+}
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 5, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 6, updated: Date.now(), run} satisfies Save);
 }

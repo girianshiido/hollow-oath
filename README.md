@@ -13,9 +13,9 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 - Victory advances immediately after the defeat animation. HP carries between encounters and refills when starting a wave. Falling restarts the current wave at encounter 1 and preserves experience, gold and gear. The final wave is replayable.
 - Open the armory with the top-left button. The Shop opens after a defeat, before retrying. Its Auto-equip purchases checkbox can equip each purchase immediately. It sells weapons, armor, shields, helmets, boots and rings, with names and relic titles tailored to your class. Some guardians drop relics. The top-right button opens the pause menu.
 - Open the pause menu to mute sound effects, adjust the volume, or hear a test strike. The settings are saved on this browser. See [sound credits](AUDIO.md).
-- Four local autosave files. Use Export backup in the pause menu and Import a backup on the Load Game screen to move an oath between devices or browsers.
+- Local autosaves with no fixed number of files. Delete old saves from Load Game. Use Export backup in the pause menu and Import a backup on the Load Game screen to move an oath between devices or browsers.
 
-The Achievements page in Options tracks combat, spell use, survival, defeats, campaign milestones, oddities and speed goals per file. Class victories count across the saved files. Timed challenges require a new game and count active combat, transitions and failed attempts. Menus and defeat screens pause the timer. Existing saves credit milestones supported by their saved data.
+The Achievements page on the title screen and in Options shares progress across all adventures on this device. Totals accumulate across files and records keep their best result. Deleting a save keeps its achievements. Timed challenges require a new game and count active combat, transitions and failed attempts. Menus and defeat screens pause the timer. Existing saves credit milestones supported by their saved data.
 
 ## Run locally
 
@@ -36,7 +36,7 @@ pnpm preview
 
 The production build also writes `release/Hollow-Oath.html`, a self-contained edition you can open directly in a desktop browser. It contains the game and all its art.
 
-Publish the contents of `dist/` on a static HTTPS host, including GitHub Pages. Relative asset URLs and the service worker support hosting at a repository subpath. Offline play becomes available after the service worker finishes downloading the game. The pause menu reports the offline cache state. Use **Check for updates** on the title screen or in Options to download a new release, then **Install update** to save the current game and reload. Publishing a new release preserves the four local files on the same web address.
+Publish the contents of `dist/` on a static HTTPS host, including GitHub Pages. Relative asset URLs and the service worker support hosting at a repository subpath. Offline play becomes available after the service worker finishes downloading the game. The pause menu reports the offline cache state. Use **Check for updates** on the title screen or in Options to download a new release, then **Install update** to save the current game and reload. Publishing a new release preserves the local files on the same web address.
 
 GitHub Actions builds and deploys the game after each push to `main`. The repository's Pages publishing source is set to **GitHub Actions**.
 

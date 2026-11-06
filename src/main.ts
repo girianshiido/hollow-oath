@@ -1,4 +1,4 @@
-import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS } from './achievements.ts';
+import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, emptyProfile, mergeProfile, profileFromRun } from './achievements.ts';
 import { audioSettings, backgroundAudio, configureAudio, playSound, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
@@ -7,10 +7,10 @@ import {
   HEROES, HERO_IDS, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
-import { decode, readSlot, serialize, SLOT_COUNT, writeSlot, type Save } from './saves.ts';
+import { achievementHistory, decode, deleteSlot, listSlots, readSlot, serialize, writeSlot, type Save } from './saves.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const embeddedArt = (globalThis as typeof globalThis & {HOLLOW_ART?: Record<string, string>}).HOLLOW_ART;
@@ -19,14 +19,15 @@ const find = <T extends HTMLElement = HTMLElement>(id: string) => document.getEl
 const number = new Intl.NumberFormat('en-US', {maximumFractionDigits: 1});
 const fmt = (x: number) => number.format(x);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-const slots = () => Array.from({length: SLOT_COUNT}, (_, index) => readSlot(index));
+const savedDate = new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'});
 const symbol = (text: string) => '<span aria-hidden="true">' + text + '</span>';
 let hero: HeroId = 'vanguard';
-let slot = 0;
+let slot = '';
+let createSlot = false;
 let screen = 'title';
 let battle: Battle | undefined;
 let unlocked = new Set<string>();
-let victories = new Set<HeroId>();
+let history = {other: emptyProfile(), prior: emptyProfile()};
 let recordsDirty = false;
 let effects: Effects | undefined;
 let dialogKind = '';
@@ -96,6 +97,7 @@ function title(): void {
     <footer class="title-footer">
       <div class="title-bottom">
         <button class="text-action" data-action="help">How to play</button>
+        <button class="text-action" data-action="achievements">Achievements</button>
         <button class="text-action" id="update-game" data-action="update" hidden><span>Check for updates</span></button>
       </div>
       <p id="update-status" class="update-status" role="status"></p>
@@ -108,7 +110,7 @@ function heroScreen(): void {
   const h = HEROES[hero];
   mount('hero', `<main class="frame hero-screen" tabindex="-1" style="--hero:${h.color}">
     <header class="selection-head"><button class="round" data-action="title" aria-label="Back to title">${icon('back')}</button>
-      <span>THE OATHBOUND</span><small>FILE 0${slot + 1}</small></header>
+      <span>THE OATHBOUND</span></header>
     <div class="hero-display">
       <figure class="hero-portrait"><img src="${art(hero)}" alt="Portrait of the ${h.name}"><span>${icon('mark')} OATH / 0${HERO_IDS.indexOf(hero) + 1}</span></figure>
       <div class="hero-info">
@@ -126,22 +128,25 @@ function heroMetric(label: string, value: number, max: number): string {
   return `<div><span>${label}</span><span class="metric"><i style="width:${value / max * 100}%"></i></span></div>`;
 }
 function slotLabel(data: Save | null): string {
-  if (!data) return '<strong>Empty file</strong><small>Ready for a new oath</small>';
+  if (!data) return '<strong>Unreadable save</strong>';
   const r = data.run;
   const where = r.phase === 'victory' ? 'Oath fulfilled' : 'Wave ' + r.wave + ' · Encounter ' + r.step;
-  return `<strong>${HEROES[r.hero].name} <span>Lv. ${fmt(r.level)}</span></strong><small>${where}</small>`;
+  return `<strong>${HEROES[r.hero].name} <span>Lv. ${fmt(r.level)}</span></strong>
+    <small>${where}</small><small>${savedDate.format(data.updated)}</small>`;
 }
-function slotScreen(kind: 'new' | 'load' | 'import', incoming?: Save): void {
-  const heading = kind === 'new' ? 'Choose a file' : kind === 'load' ? 'Load Game' : 'Import an oath';
-  const entries = slots();
-  pendingImport = incoming;
+function slotScreen(): void {
+  const entries = listSlots();
   mount('slots', `<main class="frame record-screen" tabindex="-1">
     <header class="selection-head"><button class="round" data-action="title" aria-label="Back to title">${icon('back')}</button><span>HOLLOW OATH</span></header>
-    <div class="record-body"><p class="kicker">THE ARCHIVE</p><h1>${heading}</h1>
-    <p>${kind === 'import' ? 'Choose where to restore your backup.' : 'Your oaths are saved on this device.'}</p>
-    <div class="slot-list">${entries.map((data, i) => `<button class="file-row" data-action="${kind}-slot" data-id="${i}" ${kind === 'load' && !data ? 'disabled' : ''}>
-      <span class="file-number">0${i + 1}</span><span>${slotLabel(data)}</span>${icon('next')}</button>`).join('')}</div>
-    ${kind === 'load' ? '<button class="text-action" data-action="import">Import a backup</button>' : ''}
+    <div class="record-body"><p class="kicker">THE ARCHIVE</p><h1>Load Game</h1>
+    <p>${entries.length ? 'Your oaths are saved on this device.' : 'No saved games yet.'}</p>
+    <div class="slot-list">${entries.map(({id, data}, index) => `<div class="file-entry">
+      <button class="file-row" data-action="load-slot" data-id="${id}" ${data ? '' : 'disabled'}>
+        ${data ? `<img class="file-portrait" src="${art(data.run.hero)}" alt="">` : icon('bag')}
+        <span>${slotLabel(data)}</span>${icon('next')}</button>
+      <button class="compact delete-file" data-action="delete-slot" data-id="${id}"
+        aria-label="Delete save ${index + 1}${data ? ' for ' + HEROES[data.run.hero].name : ''}">Delete</button></div>`).join('')}</div>
+    <button class="text-action" data-action="import">Import a backup</button>
     </div>
   </main>`);
 }
@@ -171,10 +176,12 @@ function help(): void {
   </div>`);
 }
 
-function startArena(run: Run): void {
+function startArena(run: Run, isNew = false): void {
+  createSlot = isNew;
   battle = new Battle(run, battleEvent);
-  victories = savedVictories();
-  unlocked = new Set(ACHIEVEMENTS.filter(item => item.progress(run, victories) >= item.target).map(item => item.id));
+  history = achievementHistory(run.runId);
+  const profile = currentProfile();
+  unlocked = new Set(ACHIEVEMENTS.filter(item => item.progress(profile) >= item.target).map(item => item.id));
   recordsDirty = false;
   dirty = false;
   nextSave = nextHud = lastFrame = 0;
@@ -404,7 +411,7 @@ function battleEvent(event: BattleEvent): void {
       toast('Level ' + fmt(event.level) + (event.spells.length ? ' · Learned ' + event.spells.map(id => SPELLS[id].name).join(', ') : ' · Stats increased'));
       break;
     case 'kill':
-      if (current().phase === 'victory') victories = savedVictories();
+      if (current().phase === 'victory') history = achievementHistory(current().runId);
       animate('slain');
       paceHint = '';
       if (event.essence || event.loot || battle?.foe.boss) void playSound('reward');
@@ -467,7 +474,8 @@ function toast(message: string): void {
 
 function save(): void {
   if (!battle) return;
-  saved = writeSlot(slot, battle.run);
+  saved = writeSlot(slot, battle.run, createSlot);
+  if (saved) createSlot = false;
   dirty = false;
   nextSave = performance.now() + 2400;
 }
@@ -528,12 +536,20 @@ function elapsedLabel(seconds: number): string {
   const full = Math.floor(seconds);
   return Math.floor(full / 60) + 'm ' + String(full % 60).padStart(2, '0') + 's';
 }
-function savedVictories(): Set<HeroId> {
-  return new Set(slots().flatMap((file, index) => index !== slot && file?.run.chronicle.finished ? [file.run.hero] : []));
+function currentProfile() {
+  const profile = emptyProfile();
+  mergeProfile(profile, history.other);
+  if (battle) {
+    const active = profileFromRun(battle.run);
+    mergeProfile(active, history.prior, true);
+    mergeProfile(profile, active);
+  }
+  return profile;
 }
 function notifyAchievements(): void {
   recordsDirty = false;
-  const gained = ACHIEVEMENTS.filter(item => !unlocked.has(item.id) && item.progress(current(), victories) >= item.target);
+  const profile = currentProfile();
+  const gained = ACHIEVEMENTS.filter(item => !unlocked.has(item.id) && item.progress(profile) >= item.target);
   if (!gained.length) return;
   for (const item of gained) unlocked.add(item.id);
   const notice = find('achievement-toast');
@@ -543,23 +559,24 @@ function notifyAchievements(): void {
   achievementToastTimer = window.setTimeout(() => notice.classList.remove('shown'), 3300);
 }
 function achievements(): void {
-  const run = current();
-  victories = savedVictories();
-  const elapsed = run.chronicle.activeSeconds;
-  const count = ACHIEVEMENTS.filter(item => item.progress(run, victories) >= item.target).length;
-  openDialog('achievements', 'Achievements', `<div class="sheet-caption"><span>${count} / ${ACHIEVEMENTS.length} UNLOCKED</span><span>FILE 0${slot + 1}</span></div>
-    <p class="chronicle-note">${elapsed === null ? 'Timed challenges begin with a new game.' :
-      (run.chronicle.finished ? 'First clear · ' : 'Active time · ') + elapsedLabel(elapsed)}</p>
+  history = achievementHistory(battle?.run.runId);
+  const profile = currentProfile();
+  const elapsed = battle?.run.chronicle.activeSeconds;
+  const count = ACHIEVEMENTS.filter(item => item.progress(profile) >= item.target).length;
+  openDialog('achievements', 'Achievements', `<div class="sheet-caption"><span>${count} / ${ACHIEVEMENTS.length} UNLOCKED</span><span>ALL ADVENTURES</span></div>
+    <p class="chronicle-note">${profile.fastest !== null ? 'Best campaign time · ' + elapsedLabel(profile.fastest) :
+      'Timed challenges count from the start of a new game.'}
+      ${elapsed != null && !battle?.run.chronicle.finished ? '<br>Current game · ' + elapsedLabel(elapsed) : ''}</p>
     <div class="achievement-groups">${ACHIEVEMENT_GROUPS.map((group, index) => {
       const entries = ACHIEVEMENTS.filter(item => item.group === group);
-      const complete = entries.filter(item => item.progress(run, victories) >= item.target).length;
+      const complete = entries.filter(item => item.progress(profile) >= item.target).length;
       return `<details class="achievement-group" ${index === 0 ? 'open' : ''}>
         <summary>${group}<span>${complete} / ${entries.length}</span></summary>
-        ${group === 'Classes' ? '<p class="achievement-group-note">Class victories count across your saved files.</p>' : ''}
+        ${group === 'Classes' ? '<p class="achievement-group-note">Class victories count across all your adventures.</p>' : ''}
         ${entries.map(item => {
-          const value = Math.min(item.progress(run, victories), item.target);
+          const value = Math.min(item.progress(profile), item.target);
           const earned = value >= item.target;
-          const status = earned ? 'Unlocked' : item.minutes ? (elapsed === null ? 'New game only' : 'Locked') :
+          const status = earned ? 'Unlocked' : item.minutes ? 'Locked' :
             fmt(value) + ' / ' + fmt(item.target);
           return `<div class="achievement-item ${earned ? 'earned' : ''}">
             <span class="achievement-icon">${icon(earned ? 'mark' : 'lock')}</span>
@@ -569,7 +586,7 @@ function achievements(): void {
         }).join('')}</details>`;
     }).join('')}</div>
     <p class="sheet-foot">Time counts during active battles and transitions, including lost attempts. It pauses in menus and on the defeat screen.</p>
-    <button class="text-action" data-action="options">Back to options</button>`, 'OATH RECORD');
+    <button class="text-action" data-action="${battle ? 'options' : 'close'}">${battle ? 'Back to options' : 'Back to title'}</button>`, 'OATH RECORD');
 }
 
 function options(): void {
@@ -589,18 +606,17 @@ function options(): void {
     <p id="update-status" class="update-status" role="status"></p>
     <button class="secondary wide" data-action="export">Export backup ${icon('bag')}</button>
     <button class="secondary wide" data-action="exit">Save &amp; return to title ${icon('back')}</button>
-    <p class="sheet-foot">${saved ? 'Auto-save is active. This is file 0' + (slot + 1) + '.' : 'Auto-save is unavailable. Export a backup to keep this oath.'}</p>
+    <p class="sheet-foot">${saved ? 'Auto-save is active on this device.' : 'Auto-save is unavailable. Export a backup to keep this oath.'}</p>
     <p class="sheet-foot" id="offline-state">${offlineStatus()}</p>
   </div>`);
   renderUpdates();
 }
 
-let pendingImport: Save | undefined;
 function exportSave(): void {
   const url = URL.createObjectURL(new Blob([serialize(current())], {type: 'application/json'}));
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = 'hollow-oath-file-' + (slot + 1) + '.json';
+  anchor.download = 'hollow-oath-' + current().hero + '.json';
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
@@ -616,28 +632,20 @@ function importSave(): void {
     let data: Save | null = null;
     try { if (file.size < 350_000) data = decode(await file.text()); }
     catch { /* Read failures use the same message as invalid backups. */ }
-    if (data) slotScreen('import', data);
-    else toast('This is not a valid Hollow Oath backup.');
+    if (!data) { toast('This is not a valid Hollow Oath backup.'); return; }
+    if (!writeSlot(newRunId(), data.run)) { toast('This device could not store the imported oath.'); return; }
+    slotScreen();
+    toast('Backup restored as a new save.');
   });
   input.click();
 }
-function chooseSlot(i: number, isImport: boolean): void {
-  slot = i;
-  if (readSlot(i)) {
-    openDialog('replace', 'Replace this oath?', `<p class="guide">File 0${i + 1} already holds a saved game. Replacing it will overwrite that oath.</p>
-      <button class="primary wide" data-action="${isImport ? 'import-confirm' : 'new-confirm'}">Replace file 0${i + 1}</button>
-      <button class="text-action" data-action="close">Keep existing save</button>`);
-  } else if (isImport) finishImport();
-  else heroScreen();
-}
-function finishImport(): void {
-  if (!pendingImport) return;
-  if (!writeSlot(slot, pendingImport.run)) {
-    toast('This device could not store the imported oath.');
-    return;
-  }
-  slotScreen('load');
-  toast('Backup restored.');
+function confirmDelete(id: string): void {
+  const data = readSlot(id);
+  const name = data ? HEROES[data.run.hero].name + ' · Wave ' + data.run.wave : 'Unreadable save';
+  openDialog('delete', 'Delete this save?', `<p class="guide">${name}. This removes the playable save from this device. Its achievements remain in the shared record.</p>
+    <button class="secondary wide" data-action="delete-confirm" data-id="${id}">Delete save</button>
+    <button class="text-action" data-action="close" autofocus>Keep save</button>
+    <p class="update-status" id="delete-status" role="status"></p>`, 'THE ARCHIVE');
 }
 
 app.addEventListener('input', event => {
@@ -685,14 +693,17 @@ app.addEventListener('click', event => {
   const {action, id} = target.dataset;
   switch (action) {
     case 'title': title(); break;
-    case 'new': slotScreen('new'); break;
-    case 'load': slotScreen('load'); break;
-    case 'new-slot': chooseSlot(Number(id), false); break;
-    case 'import-slot': chooseSlot(Number(id), true); break;
-    case 'new-confirm': heroScreen(); break;
-    case 'import-confirm': finishImport(); break;
+    case 'new': heroScreen(); break;
+    case 'load': slotScreen(); break;
+    case 'delete-slot': confirmDelete(id!); break;
+    case 'delete-confirm':
+      if (deleteSlot(id!)) {
+        slotScreen();
+        toast('Save deleted. Achievements kept.');
+      } else find('delete-status').textContent = 'This device could not preserve your achievements. The save is still here.';
+      break;
     case 'load-slot': {
-      slot = Number(id);
+      slot = id!;
       const data = readSlot(slot);
       if (data) startArena(data.run);
       break;
@@ -702,7 +713,12 @@ app.addEventListener('click', event => {
       heroScreen();
       app.querySelector<HTMLElement>('button[data-id="' + hero + '"]')?.focus({preventScroll: true});
       break;
-    case 'start': startArena(newRun(hero)); break;
+    case 'start': {
+      const run = newRun(hero);
+      slot = run.runId;
+      startArena(run, true);
+      break;
+    }
     case 'help': help(); break;
     case 'close': close(); break;
     case 'options': options(); break;

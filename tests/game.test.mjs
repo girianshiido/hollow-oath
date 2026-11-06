@@ -1,9 +1,9 @@
-import { ACHIEVEMENTS } from '../src/achievements.ts';
+import { ACHIEVEMENTS, mergeProfile, profileFromRun } from '../src/achievements.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
 import { activeSeal, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats } from '../src/engine.ts';
-import { decode, serialize } from '../src/saves.ts';
+import { achievementHistory, decode, deleteSlot, listSlots, serialize, writeSlot } from '../src/saves.ts';
 
 function at(wave, step, level = 15) {
   const r = newRun('vanguard');
@@ -294,7 +294,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 5);
+  assert.equal(migrated?.version, 6);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -311,7 +311,7 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 5);
+  assert.equal(migrated?.version, 6);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
   migrated.run.mode = 'magic';
@@ -360,14 +360,14 @@ test('Active time excludes defeat screens and freezes after the first campaign c
   assert.ok(run.chronicle.finished);
   const finish = run.chronicle.activeSeconds;
   assert.ok(finish > 0 && finish < 3);
-  assert.ok(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(run));
+  assert.ok(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(profileFromRun(run)));
   battle.tick(2);
   resumeWave(run);
   battle.refresh();
   battle.tick(.3, 1.5);
   assert.equal(run.chronicle.activeSeconds, finish);
   run.chronicle.activeSeconds = 5400;
-  assert.equal(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(run), 0);
+  assert.equal(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(profileFromRun(run)), 0);
   run.phase = 'fallen';
   run.chronicle.finished = false;
   battle.tick(.3, 1.5);
@@ -445,16 +445,20 @@ test('Gear-free and spell-free waves track the full attempt and reset on a retry
 
 test('Class victory badges combine saved heroes and defeats reach the intended tiers', () => {
   const run = newRun('vanguard');
-  const progress = (id, winners) => ACHIEVEMENTS.find(item=>item.id===id).progress(run,winners);
   run.chronicle.finished = true;
-  const winners = new Set(['nightblade','hexweaver','oathkeeper']);
-  assert.equal(progress('victory-vanguard'),1);
-  assert.equal(progress('victory-nightblade', winners),1);
-  assert.equal(progress('victory-all', winners),4);
+  const profile = profileFromRun(run);
+  assert.equal(ACHIEVEMENTS.find(item=>item.id==='victory-vanguard').progress(profile),1);
+  for (const hero of ['nightblade','hexweaver','oathkeeper']) {
+    const completed = newRun(hero);
+    completed.chronicle.finished = true;
+    mergeProfile(profile, profileFromRun(completed));
+  }
+  assert.equal(ACHIEVEMENTS.find(item=>item.id==='victory-nightblade').progress(profile),1);
+  assert.equal(ACHIEVEMENTS.find(item=>item.id==='victory-all').progress(profile),4);
   run.deaths = 1000;
   for (const goal of [10,50,100,250,1000]) {
     const record = ACHIEVEMENTS.find(item=>item.id==='fall-'+goal);
-    assert.ok(record.progress(run) >= record.target);
+    assert.ok(record.progress(profileFromRun(run)) >= record.target);
   }
 });
 
@@ -465,7 +469,7 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   const old = { ...run, chronicle:{...run.chronicle} };
   for (const key of ['gearFreeAttempt','spellFreeAttempt','clearedGearFree','clearedSpellFree','nearDeathClear','immuneHits']) delete old.chronicle[key];
   const migrated = decode(JSON.stringify({version:4, updated:Date.now(), run:old}));
-  assert.equal(migrated.version,5);
+  assert.equal(migrated.version,6);
   assert.equal(migrated.run.chronicle.hits,440);
   assert.equal(migrated.run.chronicle.activeSeconds,1200);
   const battle = new Battle(migrated.run, () => {});
@@ -473,4 +477,69 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   assert.equal(migrated.run.phase, 'clear');
   assert.equal(migrated.run.chronicle.clearedGearFree, false);
   assert.equal(migrated.run.chronicle.clearedSpellFree, false);
+});
+
+
+test('Profiles merge separate adventures, preserve deleted saves and deduplicate an imported copy', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storage = new Map();
+  Object.defineProperty(globalThis, 'localStorage', {configurable:true,value:{
+    get length() { return storage.size; },
+    key: index => [...storage.keys()][index] ?? null,
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key,value) => storage.set(key,value),
+    removeItem: key => storage.delete(key)
+  }});
+  try {
+    const a = newRun('vanguard'), b = newRun('hexweaver');
+    a.kills = 24;
+    a.chronicle.bestStreak = 14;
+    b.kills = 10;
+    b.chronicle.bestStreak = 10;
+    for (let i = 0; i < 6; i++) assert.ok(writeSlot(String(i), newRun('nightblade')));
+    assert.ok(writeSlot(a.runId, a));
+    assert.ok(writeSlot(b.runId, b));
+    assert.equal(listSlots().length, 8);
+    assert.equal(achievementHistory().other.totals.kills, 34);
+    assert.equal(achievementHistory().other.best.streak, 14);
+    assert.ok(deleteSlot(a.runId));
+    assert.equal(listSlots().length, 7);
+    assert.equal(writeSlot(a.runId, a, false), false);
+    assert.equal(achievementHistory().other.totals.kills, 34);
+    const copy = decode(serialize(a)).run;
+    copy.kills = 20;
+    assert.ok(writeSlot('10', copy));
+    assert.equal(achievementHistory().other.totals.kills, 34);
+    const {prior, other} = achievementHistory(a.runId);
+    assert.equal(prior.totals.kills, 24);
+    assert.equal(other.totals.kills, 10);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis,'localStorage',descriptor);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('Legacy save identity ignores export dates and object key order', () => {
+  const old = newRun('vanguard');
+  delete old.runId;
+  const first = decode(JSON.stringify({version:5,updated:1,run:old}));
+  const reordered = Object.fromEntries(Object.entries(old).reverse());
+  const second = decode(JSON.stringify({version:5,updated:2,run:reordered}));
+  assert.ok(first?.run.runId.startsWith('legacy-'));
+  assert.equal(first.run.runId,second.run.runId);
+});
+
+test('A killing blow reports full damage while HP stops at zero', () => {
+  const run = at(1, 1);
+  const hits = [];
+  const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event.damage); });
+  battle.player.atk = 90;
+  battle.player.spd = 1;
+  battle.foe.def = 0;
+  battle.foe.spd = .05;
+  run.foeHp = battle.foe.hp = 130;
+  battle.tick(2);
+  assert.deepEqual(hits,[90,90]);
+  assert.equal(run.foeHp,0);
+  assert.equal(run.kills,1);
 });

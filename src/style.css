@@ -65,7 +65,7 @@ h1, h2, p, figure, dl, dd { margin: 0; }
 .title-note { font: italic clamp(17px, 4vw, 22px) var(--serif); color: #e8ddc8; text-shadow: 0 1px 5px black; }
 .title-actions { display: grid; gap: 8px; width: min(100%, 274px); margin: 24px auto 0; }
 .title-bottom { display: flex; justify-content: space-between; align-items: center; color: #c5bca6; font-size: 10px; letter-spacing: .13em; }
-.title-bottom .text-action { font-size: 13px; letter-spacing: 0; }
+.title-bottom .text-action { font-size: 12px; letter-spacing: 0; }
 .title-footer .update-status { text-align: right; }
 
 .selection-head { display: flex; align-items: center; gap: 12px; color: var(--gold); font-size: 10px; letter-spacing: .18em; font-weight: 700; }
@@ -100,7 +100,9 @@ h1, h2, p, figure, dl, dd { margin: 0; }
 .slot-list { display: grid; gap: 8px; margin: 25px 0 8px; }
 .file-row { display: grid; grid-template-columns: 36px 1fr 23px; align-items: center; gap: 8px; min-height: 69px; width: 100%; padding: 10px 12px; text-align: left; background: #1a201a; border: 1px solid var(--line); }
 .file-row:hover:not(:disabled) { border-color: var(--gold); }
-.file-number { font: 22px var(--serif); color: var(--gold); }
+.file-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 5px; }
+.file-portrait { width: 34px; height: 43px; object-fit: cover; object-position: 50% 25%; border: 1px solid var(--line); }
+.delete-file { min-width: 52px; color: #e0b7a1; }
 .file-row strong, .file-row small { display: block; }
 .file-row strong span { font-size: 11px; color: var(--gold); margin-left: 4px; }
 .file-row small { font-size: 12px; color: var(--muted); margin-top: 3px; }

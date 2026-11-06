@@ -6,6 +6,7 @@ import {
 
 export type Phase = 'fight' | 'fallen' | 'clear' | 'victory';
 export interface Run {
+  runId: string;
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
@@ -54,9 +55,12 @@ function openEncounter(run: Run): void {
   run.enemyGauge = 0;
 }
 
+export function newRunId(): string {
+  return 'run-' + Array.from(crypto.getRandomValues(new Uint32Array(4)), part => part.toString(36)).join('-');
+}
 export function newRun(hero: HeroId): Run {
   const run: Run = {
-    hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
+    runId: newRunId(), hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
     chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0,
@@ -289,7 +293,7 @@ export class Battle {
       if (strike === 'steel') run.chronicle.steelHits++;
       if (affinity === 'weak') run.chronicle.weakHits++;
     }
-    this.send({type: 'hit', strike, damage: actual, affinity});
+    this.send({type: 'hit', strike, damage: nextFloor > 0 ? actual : damage, affinity});
     if (run.foeHp === 0) this.win();
     else if (run.foeHp === nextFloor) this.send({type: 'armed'});
   }
