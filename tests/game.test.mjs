@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encounter, gearId, gearPrice, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
+import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
 import { activeSeal, Battle, buyGear, canShop, equipGear, newRun, resumeWave, stats } from '../src/engine.ts';
 import { decode, serialize } from '../src/saves.ts';
 
@@ -178,4 +178,20 @@ test('Shop only opens at marked camps or after defeat', () => {
   assert.ok(buyGear(r, {slot:'ring', tier:1, relic:false}));
   resumeWave(r);
   assert.equal(canShop(r), false);
+});
+
+
+test('All gear ranks have distinct names for every slot and relic', () => {
+  const names = new Set();
+  for (let tier = 1; tier <= WAVE_COUNT; tier++) {
+    for (const slot of GEAR_SLOTS) {
+      for (const relic of [false, true]) {
+        const name = gearName({ slot, tier, relic });
+        assert.ok(name);
+        assert.ok(!names.has(name), name);
+        names.add(name);
+      }
+    }
+  }
+  assert.equal(names.size, 384);
 });

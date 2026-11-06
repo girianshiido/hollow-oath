@@ -125,14 +125,48 @@ export interface Gear { slot: GearSlot; tier: number; relic: boolean }
 export const GEAR_NAMES: Record<GearSlot, string> = {
   weapon: 'Weapon', armor: 'Armor', shield: 'Shield', helm: 'Helmet', boots: 'Boots', ring: 'Ring'
 };
-const GEAR_TYPES = ['Blade', 'Cuirass', 'Ward', 'Crown', 'Greaves', 'Signet'];
-const METALS = ['Iron', 'Ashsteel', 'Moon Silver', 'Obsidian', 'Starforged', 'Eclipse'];
+// One row per rank, in GEAR_SLOTS order. The first entry is the relic epithet.
+const GEAR_NAMES_BY_RANK = [
+  ['the Briar', 'Iron Blade', 'Thornhide Coat', 'Gatewatch Shield', 'Pilgrim’s Hood', 'Trailworn Boots', 'Copper Vow'],
+  ['the Bells', 'Bellringer’s Edge', 'Silent Vestment', 'Clapper Guard', 'Vigil Mask', 'Hushwalkers', 'Chimeband'],
+  ['the Sunsteps', 'Aurelian Fang', 'Sunweave Hauberk', 'Dawn Disc', 'Lion’s Visor', 'Gilt Striders', 'Amber Eye'],
+  ['the Undertow', 'Keelbreaker', 'Brinecoat', 'Wreckwood Buckler', 'Diver’s Helm', 'Tide Treads', 'Drowned Pearl'],
+  ['the Furnace', 'Slagcleaver', 'Furnace Lamellar', 'Cinder Bulwark', 'Forgeface', 'Coalstep Sabatons', 'Ember Knot'],
+  ['Harrowfrost', 'Rimecleaver', 'Winterbark Mail', 'Owlwood Ward', 'Hoarfrost Cowl', 'Snowdrift Boots', 'Blue Sap Ring'],
+  ['the Thorn Court', 'Scarlet Needle', 'Bramble Doublet', 'Duelist’s Parry', 'Briar Circlet', 'Rosepath Shoes', 'Petal Signet'],
+  ['the Moonworks', 'Crescent Cutter', 'Clockwork Carapace', 'Orbit Guard', 'Silver Dial Helm', 'Pendulum Treads', 'Lunar Cog'],
+  ['the Saffron Tomb', 'Cobra’s Mercy', 'Saffron Shroud', 'Sarcophagus Lid', 'Pharaoh’s Asp', 'Dune Bindings', 'Scarab Coil'],
+  ['the Spire', 'Widow’s Pin', 'Porcelain Jack', 'China Shell', 'Cracked Doll Mask', 'Silkfoot Slippers', 'White Web Ring'],
+  ['the Zodiac', 'Comet Needle', 'Star Chart Mantle', 'Constellation Aegis', 'Seer’s Astrolabe', 'Sky Meridian Boots', 'Empty House'],
+  ['the Belfry', 'Tusksplitter', 'Belfry Harness', 'Bronze Bell Guard', 'Ringer’s Cap', 'Marsh Trotters', 'Bell-Tongue Loop'],
+  ['the Pyre', 'Vermilion Talon', 'Ashfeather Cape', 'Pyrewake Shield', 'Phoenix Crest', 'Firewalking Spurs', 'Sootglass Band'],
+  ['the Pale Sea', 'Glacier Harpoon', 'Leviathan Hide', 'Floeshard Shield', 'Whalebone Helm', 'Icewake Boots', 'Northwater Opal'],
+  ['Hammerdeep', 'Anvilbite', 'Anvilhide Hauberk', 'Hammerdeep Rampart', 'Oxhorn Helm', 'Ironfoundry Treads', 'Forgemaster’s Stamp'],
+  ['the Gilded Prison', 'Jailer’s Keyblade', 'Gilded Straitcoat', 'Casket Door', 'Saint’s Blindfold', 'Manacle Boots', 'Prisoner’s Gold'],
+  ['the Emerald Fen', 'Reedfang', 'Fenmoss Robe', 'Lilypad Targe', 'Coral Tiara', 'Bogskip Sandals', 'Greenwater Bead'],
+  ['the Amber Wrecks', 'Deadwake Cutlass', 'Drowned Captain’s Coat', 'Capstan Guard', 'Wreckmaster’s Tricorn', 'Deckgrip Boots', 'Amber Doubloon'],
+  ['the Poison Garden', 'Orchid’s Thorn', 'Venomleaf Tunic', 'Poison Petal Guard', 'Gardener’s Veil', 'Rootstalker Boots', 'Nightshade Cluster'],
+  ['Moonglass Ridge', 'Chainfang', 'Moonglass Pelt', 'Packleader’s Ward', 'Silver Muzzle', 'Wolfprint Greaves', 'Moonchain Loop'],
+  ['the Blood Caldera', 'Drake’s Tongue', 'Caldera Scale', 'Bloodstone Aegis', 'Wyrmjaw Helm', 'Lavawalk Spurs', 'Magma Vein'],
+  ['the Glass Basilica', 'Obsidian Crosier', 'Stainedglass Mantle', 'Black Pane Shield', 'Bishop’s Mitre', 'Vesper Treads', 'Onyx Sacrament'],
+  ['the Brass Aerie', 'Gryphon’s Beak', 'Aerie Brigandine', 'Brass Wing Guard', 'Owl’s Gaze', 'Skyhook Boots', 'High Perch Seal'],
+  ['the Thorn Wheel', 'Harlequin’s Razor', 'Penitent’s Motley', 'Thornwheel Buckler', 'Jester’s Effigy', 'Spindle Shoes', 'Crooked Halo'],
+  ['the Violet Abyss', 'Tentacle Hook', 'Abyssal Shroud', 'Many-Eyed Ward', 'Gazer’s Crown', 'Deepcurrent Boots', 'Violet Iris'],
+  ['Mireward', 'Crusader’s Cleaver', 'Mireplate Coat', 'Bastion Tower Shield', 'Crocodile Casque', 'Siltbound Greaves', 'Marsh Oath'],
+  ['the Meridian', 'Solar Caliper', 'Heliac Armor', 'Meridian Wheel', 'Sunface Helm', 'Zenith Sandals', 'Last Daystar'],
+  ['the Reliquary', 'Puppeteer’s Shears', 'Stringbound Jacket', 'Marionette Brace', 'Cracked Harlequin Face', 'Puppetstep Shoes', 'Sixfold Knot'],
+  ['the Jade Procession', 'Jade Viper', 'Bride’s Winding Silk', 'Serpent Fan', 'Mourning Veil', 'Procession Slippers', 'Ghost Wedding Band'],
+  ['the Red Dominion', 'Tyrant’s Spur', 'Crimson Barding', 'Dominion Wall', 'Conqueror’s Sallet', 'Warsteed Boots', 'Red Decree'],
+  ['the Firmament', 'Seraph’s Shard', 'Fallen Pinions', 'Firmament Guard', 'Broken Aureole', 'Heavenfall Striders', 'Blue Exile'],
+  ['the Hollow Throne', 'Eclipse Reaver', 'Night Without End', 'Throne of Ash', 'Antler Diadem', 'Eventide Greaves', 'Last Light’s End']
+] as const;
 const RELICS = ['Kingsbane', 'Oathplate', 'Graveward', 'The Last Crown', 'Wraithstep', 'Hollow Seal'];
 export const gearId = (gear: Gear) => gear.slot + ':' + gear.tier + ':' + Number(gear.relic);
 
 export function gearName(gear: Gear): string {
   const i = GEAR_SLOTS.indexOf(gear.slot);
-  return gear.relic ? RELICS[i]! : METALS[Math.min(5, Math.floor((gear.tier - 1) / 6))] + ' ' + GEAR_TYPES[i];
+  const rank = GEAR_NAMES_BY_RANK[gear.tier - 1]!;
+  return gear.relic ? RELICS[i]! + ' of ' + rank[0] : rank[i + 1]!;
 }
 
 export function gearBonus(gear: Gear): Partial<Stats> {
