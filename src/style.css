@@ -354,3 +354,6 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 html, body { touch-action: pan-x pan-y; }
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea { -webkit-user-select: text; user-select: text; }
+.install-guide ol { margin: 0; padding-left: 22px; }
+.install-guide li { margin: 10px 0; padding-left: 3px; }
+@media (max-height: 650px) { .title-center { padding-top: 25px; } .title-actions { margin-top: 18px; } }

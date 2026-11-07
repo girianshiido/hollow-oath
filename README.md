@@ -44,7 +44,7 @@ Publish the contents of `dist/` on a static HTTPS host, including GitHub Pages. 
 
 GitHub Actions builds and deploys the game after each push to `main`. The repository's Pages publishing source is set to **GitHub Actions**.
 
-On iPhone, the browser's Add to Home Screen action installs the app.
+The title screen and Options include **Install game**. On Android/desktop, it uses the browser’s native installation dialog when available, with manual instructions as a fallback. On iPhone/iPad, it explains Safari → Share → Add to Home Screen (and Open as Web App if shown). The button hides in standalone mode or after an installation event. It does not claim success until the browser reports installation. Installation availability and confirmation remain controlled by the browser. Chrome’s manual menu may say Install and create shortcut → Install or Add to Home screen, depending on its version. Existing players can export a save in Options and import it through Load Game if the installed app has separate storage (notably on iOS).
 
 ## Implementation
 

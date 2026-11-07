@@ -4,6 +4,7 @@ const paths: Record<string, string> = {
   book:'<path d="M12 5.5c-3-2.6-6-2.6-9-1V19c3-1.6 6-1.6 9 1 3-2.6 6-2.6 9-1V4.5c-3-1.6-6-1.6-9 1V20M6 8.5l3 .5m-3 3 3 .5m6-3.5 3-.5m-3 4 3-.5"/>',
   bag:'<path d="M8 7V5a4 4 0 0 1 8 0v2m-11 0h14l2 13H3L5 7Zm4 4 3 3 3-3m-3 3v3"/>',
   dots:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  install:'<path d="M12 3v11m-4-4 4 4 4-4M4 14v6h16v-6"/>',
   next:'<path d="M3 12h16m-6-6 6 6-6 6"/>',
   back:'<path d="M21 12H5m6-6-6 6 6 6"/>',
   zoom:'<circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7.5 10h5M10 7.5v5"/>',

@@ -3,6 +3,7 @@ import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound,
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import { installGameGestures } from './gestures.ts';
+import { installInstructions, renderInstall, requestInstall } from './install.ts';
 import {
   CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, spellRankCap, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
@@ -105,6 +106,7 @@ function title(): void {
       <div class="title-actions">
         <button class="primary" data-action="new">New Game ${icon('next')}</button>
         <button class="secondary" data-action="load">Load Game ${symbol('◇')}</button>
+        <button class="secondary" data-action="install"><span>Install game</span>${icon('install')}</button>
       </div>
     </div>
     <footer class="title-footer">
@@ -117,6 +119,7 @@ function title(): void {
     </footer>
   </main>`);
   renderUpdates();
+  renderInstall();
   renderTitleSound();
 }
 
@@ -757,6 +760,7 @@ function options(): void {
       }).join('')}
       <button class="compact" id="preview-sound" data-action="sound-preview" ${sound.muted || !sound.effectsVolume ? 'disabled' : ''}>Test sound effects</button>
     </fieldset>
+    <button class="secondary wide" data-action="install"><span>Install game</span>${icon('install')}</button>
     <button class="secondary wide" data-action="achievements">Achievements ${icon('mark')}</button>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
     <button class="secondary wide" id="update-game" data-action="update" hidden><span>Check for updates</span>${icon('next')}</button>
@@ -767,6 +771,32 @@ function options(): void {
     <p class="sheet-foot" id="offline-state">${offlineStatus()}</p>
   </div>`);
   renderUpdates();
+  renderInstall();
+}
+
+async function installGame(): Promise<void> {
+  const result = await requestInstall();
+  if (result === 'busy' || result === 'installed') return;
+  if (result === 'accepted') {
+    if (dialogKind === 'install') close();
+    toast('Installation requested. Follow your browser to finish.');
+    return;
+  }
+  if (result === 'dismissed') {
+    toast('Installation canceled. You can install later from the browser menu.');
+    return;
+  }
+  const guide = installInstructions();
+  openDialog('install', guide.heading, `<div class="guide install-guide">
+    <p>Add Hollow Oath to your Home Screen to play in its own app window.</p>
+    <ol>${guide.steps.map(step => '<li>' + escapeHtml(step) + '</li>').join('')}</ol>
+    <p>${guide.note}</p>
+    <button class="primary wide" data-action="install" data-install-prompt-only hidden><span>Install now</span>${icon('install')}</button>
+    <p class="sheet-foot" id="offline-state">${offlineStatus()}</p>
+    <p class="sheet-foot">Already playing? Use Options → Export backup before installing. If your saves are not shown in the app, use Load Game → Import a backup to continue your adventure.</p>
+    <button class="secondary wide" data-action="close">Back ${icon('back')}</button>
+  </div>`, 'PLAY AS AN APP');
+  renderInstall();
 }
 
 function exportSave(): void {
@@ -880,6 +910,7 @@ app.addEventListener('click', event => {
   if (action !== 'title-sound') void unlockAudio().then(renderTitleSound);
   switch (action) {
     case 'story-next': advanceStory(); break;
+    case 'install': void installGame(); break;
     case 'title': title(); break;
     case 'title-sound': void toggleTitleSound(); break;
     case 'new': heroScreen(); break;
