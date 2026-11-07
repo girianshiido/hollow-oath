@@ -2,6 +2,7 @@ import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, emptyProfile, mergeProfile, profileFr
 import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound, setMusic, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
+import { installGameGestures } from './gestures.ts';
 import {
   CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, spellRankCap, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
@@ -95,7 +96,7 @@ function title(): void {
   mount('title', `<main class="frame title-screen" tabindex="-1">
     <div class="title-plate" aria-hidden="true" style="--cover:url(&quot;${art('title')}&quot;)"></div>
     <div class="title-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="folio"><span>AN ILLUSTRATED DARK FANTASY</span><i></i><button class="title-sound" id="title-sound" data-action="title-sound">Play music</button></div>
+    <div class="folio"><span>AN ILLUSTRATED DARK FANTASY</span><i></i><button class="title-sound" id="title-sound" data-action="title-sound">Enable sound</button></div>
     <div class="title-center">
       <p class="title-kicker">THE CHRONICLE OF THE HOLLOW</p>
       <h1>HOLLOW<span>OATH</span></h1>
@@ -121,13 +122,14 @@ function title(): void {
 
 function renderTitleSound(): void {
   const button = document.querySelector('#title-sound');
-  if (button) button.textContent = audioActive() ? 'Mute sound' : 'Play music';
+  if (button) button.textContent = audioActive() ? 'Mute all sound' : 'Enable sound';
 }
 async function toggleTitleSound(): Promise<void> {
-  const {muted, volume} = audioSettings();
-  if (audioActive()) configureAudio(true, volume);
+  const {muted, musicVolume, effectsVolume} = audioSettings();
+  if (audioActive()) configureAudio(true, musicVolume, effectsVolume);
   else {
-    if (muted || !volume) configureAudio(false, volume || 60);
+    const silent = !musicVolume && !effectsVolume;
+    if (muted || silent) configureAudio(false, silent ? 60 : musicVolume, silent ? 60 : effectsVolume);
     await unlockAudio();
   }
   renderTitleSound();
@@ -747,10 +749,13 @@ function options(): void {
     <button class="primary wide" data-action="close">Resume ${icon('next')}</button>
     <fieldset class="audio-settings">
       <legend>Music and sound effects</legend>
-      <label class="audio-mute"><input type="checkbox" id="mute-sound" ${sound.muted ? 'checked' : ''}> Mute sound</label>
-      <div class="audio-volume"><label for="sound-volume">Volume</label><output id="volume-value" for="sound-volume">${sound.volume}%</output>
-        <input type="range" id="sound-volume" min="0" max="100" value="${sound.volume}" ${sound.muted ? 'disabled' : ''}></div>
-      <button class="compact" id="preview-sound" data-action="sound-preview" ${sound.muted || !sound.volume ? 'disabled' : ''}>Test sound</button>
+      <label class="audio-mute"><input type="checkbox" id="mute-sound" ${sound.muted ? 'checked' : ''}> Mute all sound</label>
+      ${(['music', 'effects'] as const).map(kind => {
+        const value = kind === 'music' ? sound.musicVolume : sound.effectsVolume;
+        return `<div class="audio-volume"><label for="${kind}-volume">${kind === 'music' ? 'Music' : 'Sound effects'}</label><output id="${kind}-volume-value" for="${kind}-volume">${value}%</output>
+          <input type="range" id="${kind}-volume" min="0" max="100" value="${value}" ${sound.muted ? 'disabled' : ''}></div>`;
+      }).join('')}
+      <button class="compact" id="preview-sound" data-action="sound-preview" ${sound.muted || !sound.effectsVolume ? 'disabled' : ''}>Test sound effects</button>
     </fieldset>
     <button class="secondary wide" data-action="achievements">Achievements ${icon('mark')}</button>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
@@ -833,15 +838,15 @@ app.addEventListener('submit', event => {
 app.addEventListener('input', event => {
   const input = event.target;
   if (!(input instanceof HTMLInputElement)) return;
-  if (input.id !== 'mute-sound' && input.id !== 'sound-volume') return;
+  if (!['mute-sound', 'music-volume', 'effects-volume'].includes(input.id)) return;
   const muted = find<HTMLInputElement>('mute-sound').checked;
-  const slider = find<HTMLInputElement>('sound-volume');
-  const volume = slider.valueAsNumber;
-  configureAudio(muted, volume);
+  const music = find<HTMLInputElement>('music-volume'), effects = find<HTMLInputElement>('effects-volume');
+  configureAudio(muted, music.valueAsNumber, effects.valueAsNumber);
   void unlockAudio();
-  slider.disabled = muted;
-  find('volume-value').textContent = volume + '%';
-  find<HTMLButtonElement>('preview-sound').disabled = muted || volume === 0;
+  music.disabled = effects.disabled = muted;
+  find('music-volume-value').textContent = music.value + '%';
+  find('effects-volume-value').textContent = effects.value + '%';
+  find<HTMLButtonElement>('preview-sound').disabled = muted || effects.valueAsNumber === 0;
 });
 app.addEventListener('change', event => {
   const input = event.target;
@@ -1002,5 +1007,6 @@ function frame(now: number): void {
   }
   if (dirty && now >= nextSave) save();
 }
+installGameGestures();
 title();
 requestAnimationFrame(frame);

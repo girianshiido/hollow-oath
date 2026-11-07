@@ -31,24 +31,34 @@ const embedded = (globalThis as typeof globalThis & {HOLLOW_AUDIO?: Record<strin
 const supportsOgg = Boolean(document.createElement('audio').canPlayType('audio/ogg; codecs="vorbis"'));
 let context: AudioContext | undefined;
 let master: GainNode | undefined;
+let musicBus: GainNode | undefined;
+let effectsBus: GainNode | undefined;
 const buffers = new Map<string, Promise<AudioBuffer | undefined>>();
 const voices = new Set<AudioBufferSourceNode>();
 const lastPlayed = new Map<Cue, number>();
-let settings = {muted: false, volume: 60};
+const clampVolume = (value: number, fallback = 60) => Number.isFinite(value) ? Math.round(Math.max(0, Math.min(100, value))) : fallback;
+let settings = {muted: false, musicVolume: 60, effectsVolume: 60};
 try {
   const stored = JSON.parse(localStorage.getItem(KEY) ?? 'null');
   if (typeof stored?.muted === 'boolean') settings.muted = stored.muted;
-  if (Number.isFinite(stored?.volume)) settings.volume = Math.round(Math.max(0, Math.min(100, stored.volume)));
+  const legacy = clampVolume(stored?.volume);
+  settings.musicVolume = clampVolume(stored?.musicVolume, legacy);
+  settings.effectsVolume = clampVolume(stored?.effectsVolume, legacy);
 } catch { /* Keep defaults if storage is unavailable. */ }
 
 export const audioSettings = () => settings;
 
-export function configureAudio(muted: boolean, volume: number): void {
-  settings = {muted, volume};
+export function configureAudio(muted: boolean, musicVolume: number, effectsVolume: number): void {
+  settings = {muted, musicVolume: clampVolume(musicVolume, settings.musicVolume), effectsVolume: clampVolume(effectsVolume, settings.effectsVolume)};
   try { localStorage.setItem(KEY, JSON.stringify(settings)); }
   catch { /* Audio settings still apply to the current session. */ }
-  if (muted || volume === 0) stopSounds();
-  if (context && master) master.gain.setTargetAtTime(muted ? 0 : volume / 100, context.currentTime, 0.015);
+  if (muted || settings.effectsVolume === 0) stopSounds();
+  if (context) {
+    master?.gain.setTargetAtTime(muted ? 0 : 1, context.currentTime, .015);
+    musicBus?.gain.setTargetAtTime(settings.musicVolume / 100, context.currentTime, .015);
+    effectsBus?.gain.setTargetAtTime(settings.effectsVolume / 100, context.currentTime, .015);
+    void refreshMusic();
+  }
 }
 
 function load(name: string): Promise<AudioBuffer | undefined> {
@@ -66,17 +76,23 @@ function load(name: string): Promise<AudioBuffer | undefined> {
   return ready;
 }
 
-export const audioActive = () => context?.state === 'running' && !settings.muted && settings.volume > 0;
+export const audioActive = () => context?.state === 'running' && !settings.muted && (settings.musicVolume > 0 || settings.effectsVolume > 0);
 
 export async function unlockAudio(): Promise<void> {
-  if (settings.muted || !settings.volume || document.hidden) return;
+  if (settings.muted || (!settings.musicVolume && !settings.effectsVolume) || document.hidden) return;
   const Audio = window.AudioContext ?? (window as Window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
   if (!Audio) return;
   try {
     if (!context) {
       context = new Audio();
       master = context.createGain();
-      master.gain.value = settings.volume / 100;
+      master.gain.value = 1;
+      musicBus = context.createGain();
+      musicBus.gain.value = settings.musicVolume / 100;
+      musicBus.connect(master);
+      effectsBus = context.createGain();
+      effectsBus.gain.value = settings.effectsVolume / 100;
+      effectsBus.connect(master);
       master.connect(context.destination);
       for (const name of Object.values(SOUNDS).flat()) void load(name);
     }
@@ -101,13 +117,13 @@ export function setMusic(next: MusicScene | 'silent'): void {
 
 async function refreshMusic(): Promise<void> {
   const requested = scene;
-  if (requested === 'silent' || !context || !master || !audioActive() || document.hidden ||
+  if (requested === 'silent' || !context || !musicBus || !settings.musicVolume || !audioActive() || document.hidden ||
       music?.scene === requested || pendingScene === requested) return;
   pendingScene = requested;
   const track = MUSIC[requested];
   const buffer = await load(track.file);
   if (pendingScene === requested) pendingScene = undefined;
-  if (!buffer || !context || !master || !audioActive() || document.hidden ||
+  if (!buffer || !context || !musicBus || !settings.musicVolume || !audioActive() || document.hidden ||
       requested !== scene || music?.scene === requested) return;
   const source = context.createBufferSource();
   const gain = context.createGain();
@@ -119,7 +135,7 @@ async function refreshMusic(): Promise<void> {
   gain.gain.setValueAtTime(0, at);
   gain.gain.linearRampToValueAtTime(track.gain, at + 0.24);
   source.connect(gain);
-  gain.connect(master);
+  gain.connect(musicBus);
   source.onended = () => { source.disconnect(); gain.disconnect(); };
   music = {scene: requested, source, gain};
   source.start();
@@ -137,11 +153,11 @@ export function backgroundAudio(): void {
   if (document.hidden) {
     stopSounds();
     void context?.suspend().catch(() => {});
-  } else if (context && !settings.muted && settings.volume) void unlockAudio();
+  } else if (context && !settings.muted && (settings.musicVolume || settings.effectsVolume)) void unlockAudio();
 }
 
 export async function playSound(cue: Cue, preview = false): Promise<void> {
-  if (!context || !master || settings.muted || !settings.volume || document.hidden) return;
+  if (!context || !effectsBus || settings.muted || !settings.effectsVolume || document.hidden) return;
   const now = performance.now();
   if (now - (lastPlayed.get(cue) ?? -Infinity) < (cue === 'block' ? 550 : 110)) return;
   lastPlayed.set(cue, now);
@@ -149,7 +165,7 @@ export async function playSound(cue: Cue, preview = false): Promise<void> {
   const version = revision;
   const buffer = await load(names[Math.floor(Math.random() * names.length)]!);
   if (!buffer || revision !== version || context.state !== 'running' ||
-      settings.muted || !settings.volume || document.hidden || (!preview && performance.now() - now > 320)) return;
+      settings.muted || !settings.effectsVolume || document.hidden || (!preview && performance.now() - now > 320)) return;
   if (voices.size >= 5) {
     const oldest = voices.values().next().value;
     if (oldest) { oldest.stop(); voices.delete(oldest); }
@@ -160,7 +176,7 @@ export async function playSound(cue: Cue, preview = false): Promise<void> {
   voice.playbackRate.value = 0.96 + Math.random() * 0.08;
   volume.gain.value = LEVELS[cue];
   voice.connect(volume);
-  volume.connect(master);
+  volume.connect(effectsBus!);
   voices.add(voice);
   voice.onended = () => { voices.delete(voice); voice.disconnect(); volume.disconnect(); };
   voice.start();

@@ -1,6 +1,6 @@
 # Hollow Oath
 
-Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guide, spells and encounters are in English. It is built for a portrait phone screen, with keyboard and mouse controls on desktop.
+Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guide, spells and encounters are in English. It is built for a portrait phone screen, with keyboard and mouse controls on desktop. Game text selection, double-tap zoom and pinch zoom are disabled; character-name fields remain editable and menus can scroll.
 
 - Four classes with different starting attributes and growth per level. Choose a character name when beginning or rename it under Armory → Character. Tap the avatar there to enlarge it.
 - Thirty-two waves, 1,024 encounters and 32 illustrated guardians.
@@ -16,7 +16,7 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 - Existing saves migrate when loaded. They retain their hero, equipment, battle and XP and receive Essence for already cleared guardians.
 - Victory advances immediately after the defeat animation. HP carries between encounters and refills when starting a wave. Falling restarts the current wave at encounter 1 and preserves experience, gold and gear. The final boss leads to a musical epilogue and a class-specific ending illustration. Loading a completed save replays the ending.
 - Open the armory with the top-left button. The Shop opens after a defeat, before retrying. Its Auto-equip purchases checkbox can equip each purchase immediately. It sells weapons, armor, shields, helmets, boots and rings, with names and relic titles tailored to your class. Some guardians drop relics. The top-right button opens the pause menu.
-- Select Play music on the title screen to start audio. The score changes for combat, defeat and the ending. A silent prologue follows character naming. Open the pause menu to mute music and effects, adjust the volume, or hear a test strike. The settings are saved on this browser. See [sound credits](AUDIO.md).
+- Select Enable sound on the title screen to start audio. The score changes for combat, defeat and the ending. A silent prologue follows character naming. Open the pause menu to mute music and effects, adjust music and sound-effect volumes independently, or hear a test strike. Setting either volume to zero silences that channel; Mute all sound silences both. Legacy volume settings initialize both channels. The settings are saved on this browser. See [sound credits](AUDIO.md).
 - Local autosaves with no fixed number of files. Delete old saves from Load Game. Use Export backup in the pause menu and Import a backup on the Load Game screen to move an oath between devices or browsers.
 
 The Achievements page on the title screen and in Options shares progress across all adventures on this device. Totals accumulate across files and records keep their best result. Deleting a save keeps its achievements. Timed challenges require a new game and count active combat, transitions and failed attempts. Menus and defeat screens pause the timer. Existing saves credit milestones supported by their saved data.

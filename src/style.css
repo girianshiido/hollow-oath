@@ -350,3 +350,7 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 @media (max-width: 340px) { .arena { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); } }
 .enemy-intent.casting { bottom: auto; top: 3px; left: auto; right: 0; transform: none; max-width: 60%; }
 .enemy-figure.preparing .enemy-image { filter: hue-rotate(var(--hue, 0deg)) drop-shadow(0 0 12px var(--intent)); }
+
+html, body { touch-action: pan-x pan-y; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
