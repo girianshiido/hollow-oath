@@ -23,3 +23,8 @@ test('Standalone iOS and portable files do not offer a redundant or unsupported 
  env=await setup({ua:'iPhone Safari'});assert.ok(env.module.installInstructions().steps.some(step=>step.includes('Safari')));
  env.media.get('(display-mode: standalone)').matches=true;env.media.get('(display-mode: standalone)').dispatchEvent(new Event('change'));assert.equal(env.button.hidden,true);
 });
+test('The deployed manifest has a unique app identity instead of the shared GitHub Pages origin',async()=>{
+ const {readFile}=await import('node:fs/promises');const m=JSON.parse(await readFile(new URL('../public/manifest.webmanifest',import.meta.url),'utf8'));
+ const manifestUrl='https://girianshiido.github.io/hollow-oath/manifest.webmanifest';const start=new URL(m.start_url,manifestUrl);const identity=new URL(m.id,start.origin);
+ assert.equal(identity.href,'https://girianshiido.github.io/hollow-oath/');assert.equal(identity.href,start.href);assert.equal(new URL(m.scope,manifestUrl).href,start.href);assert.equal(m.display,'standalone');
+});

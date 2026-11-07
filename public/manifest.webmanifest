@@ -1,7 +1,7 @@
 {
   "name": "Hollow Oath",
   "short_name": "Hollow Oath",
-  "id": "./",
+  "id": "/hollow-oath/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
