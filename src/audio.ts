@@ -18,10 +18,11 @@ const LEVELS: Record<Cue, number> = {
 const MUSIC = {
   title: {file: 'music-title', gain: 0.34},
   battle: {file: 'music-battle', gain: 0.28},
-  defeat: {file: 'music-defeat', gain: 0.36}
+  defeat: {file: 'music-defeat', gain: 0.36},
+  ending: {file: 'music-ending', gain: 0.34}
 } as const;
 type MusicScene = keyof typeof MUSIC;
-let scene: MusicScene = 'title';
+let scene: MusicScene | 'silent' = 'title';
 let pendingScene: MusicScene | undefined;
 let music: {scene: MusicScene; source: AudioBufferSourceNode; gain: GainNode} | undefined;
 
@@ -84,14 +85,15 @@ export async function unlockAudio(): Promise<void> {
   } catch { /* The game remains playable when audio is unavailable. */ }
 }
 
-export function setMusic(next: MusicScene): void {
+export function setMusic(next: MusicScene | 'silent'): void {
   if (scene === next) return;
   scene = next;
   if (music && context) {
     const at = context.currentTime;
     music.gain.gain.cancelScheduledValues(at);
     music.gain.gain.setTargetAtTime(0, at, 0.065);
-    music.source.stop(at + 0.30);
+    if (next === 'silent') music.gain.gain.setValueAtTime(0, at);
+    music.source.stop(next === 'silent' ? at : at + 0.30);
     music = undefined;
   }
   void refreshMusic();
@@ -99,7 +101,7 @@ export function setMusic(next: MusicScene): void {
 
 async function refreshMusic(): Promise<void> {
   const requested = scene;
-  if (!context || !master || !audioActive() || document.hidden ||
+  if (requested === 'silent' || !context || !master || !audioActive() || document.hidden ||
       music?.scene === requested || pendingScene === requested) return;
   pendingScene = requested;
   const track = MUSIC[requested];

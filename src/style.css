@@ -306,3 +306,22 @@ select, .compact { background: #242a20; border: 1px solid var(--line); color: #f
 
 .achievement-toast { top: auto; bottom: calc(88px + env(safe-area-inset-bottom)); }
 .achievement-group-note { border-top: 1px solid var(--line); padding: 6px 8px; color: var(--muted); font-size: 11px; }
+
+.story-screen { min-height: 100svh; min-height: 100dvh; display: grid; place-items: center; background: #000; padding: max(28px, env(safe-area-inset-top)) max(25px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(25px, env(safe-area-inset-left)); }
+.story-copy { width: min(100%, 520px); animation: story-reveal 1.2s ease both; }
+.story-copy h1 { font: 400 clamp(28px, 6vw, 43px)/1.2 var(--serif); margin: 25px 0; }
+.story-text { font: 18px/1.8 var(--serif); color: #d1c7b5; overflow-wrap: anywhere; }
+.story-copy button { margin-top: 34px; }
+.ending-screen { width: 100%; height: 100svh; height: 100dvh; min-height: 400px; position: relative; isolation: isolate; overflow: hidden; background: #080b0a; display: grid; grid-template-rows: 1fr auto; padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(26px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
+.ending-art { position: absolute; z-index: -3; width: 100%; height: 100%; inset: 0; object-fit: cover; object-position: center 30%; animation: ending-drift 22s ease-in-out infinite alternate; }
+.ending-shade { position: absolute; inset: 0; z-index: -2; background: linear-gradient(0deg, #030707de 0%, #03070725 30%, transparent 75%), radial-gradient(ellipse at center, transparent 20%, #07100e70); }
+.ending-atmosphere { z-index: -1; color: var(--hero-glow); }
+.ending-inscription { align-self: center; justify-self: center; text-align: center; margin-top: 10vh; text-shadow: 0 2px 12px #000, 0 0 40px #000; animation: story-reveal 2s ease both; }
+.ending-inscription h1 { font: italic 400 clamp(65px, 15vw, 130px)/1.2 var(--serif); color: #ffedc4; letter-spacing: -.05em; margin: 5px 0 15px; }
+.ending-inscription > p:last-child { font: 16px/1.5 var(--serif); color: #fff0d7; max-width: 80vw; overflow-wrap: anywhere; }
+.ending-screen > button { justify-self: center; width: min(100%, 330px); background: #0a1415c9; }
+@keyframes story-reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes ending-drift { from { transform: scale(1); } to { transform: scale(1.035); } }
+@media (min-aspect-ratio: 1/1) { .ending-art { object-position: center top; transform-origin: center top; } }
+@media (prefers-reduced-motion: reduce) { .story-copy, .ending-art, .ending-inscription { animation: none; } }
+@media (max-height: 580px) { .story-copy h1 { margin: 16px 0; font-size: 27px; } .story-text { font-size: 16px; line-height: 1.55; } .story-copy button { margin-top: 22px; } }

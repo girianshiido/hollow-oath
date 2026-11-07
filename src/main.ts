@@ -59,7 +59,9 @@ const current = (): Run => battle!.run;
 function mount(name: string, body: string): void {
   stopSounds();
   screen = name;
-  if (name !== 'arena') setMusic('title');
+  if (name === 'prologue') setMusic('silent');
+  else if (name === 'epilogue' || name === 'ending') setMusic('ending');
+  else if (name !== 'arena') setMusic('title');
   effects?.dispose();
   effects = undefined;
   dialogKind = '';
@@ -88,6 +90,7 @@ function mount(name: string, body: string): void {
 
 function title(): void {
   battle = undefined;
+  storyRun = undefined;
   mount('title', `<main class="frame title-screen" tabindex="-1">
     <div class="title-plate" aria-hidden="true" style="--cover:url(&quot;${art('title')}&quot;)"></div>
     <div class="title-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -203,6 +206,52 @@ function help(): void {
     <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. The Grimoire always casts the highest level you have learned. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
+}
+
+let storyRun: Run | undefined;
+let storyEnding = false;
+let storyPage = 0;
+function beginStory(run: Run, ending: boolean): void {
+  storyRun = run;
+  storyEnding = ending;
+  storyPage = 0;
+  lastFrame = 0;
+  showStory();
+}
+function storyPages(run: Run, ending: boolean): {heading: string; text: string}[] {
+  return ending ? [
+    {heading: 'The last shadow falls.', text: `${run.name} has defeated the Hollow King. Across thirty-two waves, every monster that stood between the realm and the dawn has fallen.`},
+    {heading: 'The kingdom breathes again.', text: 'The eclipse breaks. Roads open, bells ring, and lights return to windows long abandoned. The people of the kingdom are safe at last.'},
+    {heading: 'An oath fulfilled.', text: `The scars will remain, but so will hope. And wherever the story is told, they will remember the name ${run.name}.`}
+  ] : [
+    {heading: 'A kingdom beneath the eclipse.', text: 'When the sun vanished behind a hollow crown, monsters poured from the forgotten gates. Thirty-two waves now stand between the kingdom and the dawn.'},
+    {heading: 'One oath remains.', text: `${run.name} steps into the dark. Steel may falter, and magic may fade. Yet every fall brings knowledge, and every return brings the dawn closer.`}
+  ];
+}
+function showStory(): void {
+  const pages = storyPages(storyRun!, storyEnding), page = pages[storyPage]!;
+  const final = storyPage === pages.length - 1;
+  mount(storyEnding ? 'epilogue' : 'prologue', `<main class="story-screen" tabindex="-1" aria-labelledby="story-heading">
+    <div class="story-copy">
+      <p class="kicker">${storyEnding ? 'THE OATH FULFILLED' : 'HOLLOW OATH'} · ${storyPage + 1} / ${pages.length}</p>
+      <h1 id="story-heading">${escapeHtml(page.heading)}</h1>
+      <p class="story-text">${escapeHtml(page.text)}</p>
+      <button class="secondary wide" data-action="story-next">${final ? storyEnding ? 'See the dawn' : 'Enter the Hollow' : 'Continue'} ${icon('next')}</button>
+    </div>
+  </main>`);
+}
+function advanceStory(): void {
+  if (!storyRun || (screen !== 'prologue' && screen !== 'epilogue')) return;
+  if (++storyPage < storyPages(storyRun, storyEnding).length) { showStory(); return; }
+  const run = storyRun;
+  if (!storyEnding) { storyRun = undefined; startArena(run); return; }
+  mount('ending', `<main class="ending-screen" tabindex="-1" aria-labelledby="ending-title" style="--hero-glow:${HEROES[run.hero].color}">
+    <img class="ending-art" src="${art('ending-' + run.hero)}" alt="${escapeHtml(run.name)}, the ${HEROES[run.hero].name}, overlooking the saved kingdom at dawn">
+    <div class="ending-shade" aria-hidden="true"></div>
+    <div class="title-atmosphere ending-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="ending-inscription"><p class="kicker">THE DAWN REMEMBERS</p><h1 id="ending-title">The End</h1><p>${escapeHtml(run.name)} · ${HEROES[run.hero].name}</p></div>
+    <button class="secondary" data-action="exit">Return to Title ${icon('next')}</button>
+  </main>`);
 }
 
 function startArena(run: Run, isNew = false): void {
@@ -355,7 +404,13 @@ function updateHud(): void {
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
-  setMusic(r.phase === 'fallen' ? 'defeat' : r.phase === 'victory' ? 'title' : 'battle');
+  if (r.phase === 'victory') {
+    queueMicrotask(() => {
+      if (screen === 'arena' && battle?.run === r) { save(); beginStory(r, true); }
+    });
+    return;
+  }
+  setMusic(r.phase === 'fallen' ? 'defeat' : 'battle');
   el.hidden = r.phase === 'fight' || r.phase === 'clear';
   el.className = 'outcome';
   if (el.hidden) { el.innerHTML = ''; return; }
@@ -719,7 +774,10 @@ app.addEventListener('submit', event => {
   if (dialogKind === 'name') {
     const run = newRun(hero, name);
     slot = run.runId;
-    startArena(run, true);
+    createSlot = true;
+    battle = new Battle(run, battleEvent);
+    save();
+    beginStory(run, false);
   } else if (dialogKind === 'rename') {
     const run = current();
     const previous = run.name;
@@ -779,6 +837,7 @@ app.addEventListener('click', event => {
   const {action, id} = target.dataset;
   if (action !== 'title-sound') void unlockAudio().then(renderTitleSound);
   switch (action) {
+    case 'story-next': advanceStory(); break;
     case 'title': title(); break;
     case 'title-sound': void toggleTitleSound(); break;
     case 'new': heroScreen(); break;
@@ -898,7 +957,7 @@ window.addEventListener('pagehide', () => { if (battle) save(); });
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
-  if (!battle || dialogKind || document.hidden) { lastFrame = 0; return; }
+  if (screen !== 'arena' || !battle || dialogKind || document.hidden) { lastFrame = 0; return; }
   if (lastFrame && (battle.run.phase === 'fight' || battle.run.phase === 'clear')) {
     const elapsed = (now - lastFrame) / 1000;
     battle.tick(Math.min(elapsed, 0.15), elapsed);

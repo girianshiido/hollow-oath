@@ -15,10 +15,13 @@ Cues were edited for timing and levels, with EQ and pitch adjustments as needed.
 
 ## Original score
 
-Three original instrumental pieces were rendered from the MIDI scores in `music/` using FluidSynth 2.6 and the local `MuseScore_General_HQ.sf2` soundfont. The stereo masters run at 48 kHz. The game uses Ogg Vorbis, with AAC versions for browsers that cannot decode Ogg.
+Four original instrumental pieces were rendered from the MIDI scores in `music/` using FluidSynth 2.6 and the local `MuseScore_General_HQ.sf2` soundfont. The stereo masters run at 48 kHz. The game uses Ogg Vorbis, with AAC versions for browsers that cannot decode Ogg.
 
 | Scene | Piece | Playback |
 | --- | --- | --- |
 | Title | Ashes Around the Eclipse | 72 seconds. Harp, cello and English horn with a fade before the restart. |
 | Combat | Iron Through the Hollow | 76.8 seconds. Cello ostinato, brass and drums. The loop is cut from a repeated render and blended across the seam. |
 | Defeat | After the Last Bell | 64 seconds. Piano, cello and bell with a fade before the restart. |
+| Ending | The Dawn Remembers | 104 seconds. A lyrical horn and flute theme with strings, harp, piano and celesta. A final resolution fades before the restart. |
+
+The ending score is reproducible with `python3 scripts/compose-ending.py`. The prologue is silent; the ending theme begins with the victory epilogue and continues through The End. All music follows the global mute and volume settings.
