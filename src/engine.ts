@@ -1,7 +1,7 @@
 import { newChronicle, type Chronicle } from './achievements.ts';
 import {
-  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, MAX_SPELL_RANK, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
-  type Enemy, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
+  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, spellRankCap, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
+  type Enemy, type EnemyMove, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
 } from './content.ts';
 
 export type Phase = 'fight' | 'fallen' | 'clear' | 'victory';
@@ -12,12 +12,15 @@ export interface Run {
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
   chronicle: Chronicle;
-  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number;
+  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number; wardRank: number;
+  enemyTurns: number; enemyHeals: number; enemyRecovery: number; intent: EnemyMove | null; castWait: number; castDelay: number;
   phase: Phase; wait: number; inventory: Gear[]; equipped: Partial<Record<GearSlot, string>>;
 }
 export type BattleEvent =
   | {type: 'hit'; strike: Strike; damage: number; affinity?: 'resisted' | 'immune' | 'weak'}
-  | {type: 'hurt'; damage: number; arcane: boolean}
+  | {type: 'hurt'; damage: number; arcane: boolean; move: EnemyMove; blocked: number}
+  | {type: 'intent'; move: EnemyMove}
+  | {type: 'enemy-heal'; amount: number; drain: boolean}
   | {type: 'seal'; strike: Strike}
   | {type: 'block'; strike: Strike; attempt: Strike}
   | {type: 'heal'; amount: number}
@@ -41,9 +44,27 @@ export function stats(run: Run): Stats {
   values.mp = Math.round(values.mp);
   return values;
 }
-const thresholds: Record<number, number[]> = { 0: [], 1: [1], 2: [1, 0.52], 3: [1, 0.66, 0.33] };
-function sealFloor(foe: Enemy, index: number): number {
-  return Math.ceil(foe.hp * (thresholds[foe.seals.length]?.[index] ?? 0));
+export function sealFloor(foe: Enemy, index: number): number {
+  return index < foe.seals.length ? Math.ceil(foe.hp * (1 - index / foe.seals.length)) : 0;
+}
+export function enemyStage(run: Run, foe: Enemy): number {
+  let stage = 0;
+  while (stage + 1 < foe.seals.length && run.foeHp <= sealFloor(foe, stage + 1)) stage++;
+  return stage;
+}
+export function enemyAffinity(run: Run, foe: Enemy): Enemy['affinity'] {
+  if (!foe.boss || run.wave < 5) return foe.affinity;
+  const weak = foe.seals[enemyStage(run, foe)] ?? 'steel';
+  const choices: Strike[] = ['steel', 'ember', 'rime', 'storm'];
+  return {weak, resists: choices[(choices.indexOf(weak) + 2) % 4]!, immune: false};
+}
+function recoveryCeiling(run: Run, foe: Enemy): number {
+  return foe.seals.length ? sealFloor(foe, Math.max(enemyStage(run, foe), run.broken - 1, 0)) : foe.hp;
+}
+export function nextEnemyMove(run: Run, foe: Enemy): EnemyMove {
+  const moves = foe.moves;
+  const move = moves[(run.enemyTurns + enemyStage(run, foe)) % moves.length]!;
+  return move === 'mend' && (run.enemyHeals >= foe.healLimit || run.foeHp >= Math.min(foe.hp * .85, recoveryCeiling(run, foe)) || run.enemyRecovery >= Math.floor(foe.hp * .18)) ? 'steel' : move;
 }
 export function activeSeal(run: Run, foe: Enemy): Strike | undefined {
   return run.foeHp >= 1 && run.foeHp <= sealFloor(foe, run.broken) ? foe.seals[run.broken] : undefined;
@@ -51,6 +72,8 @@ export function activeSeal(run: Run, foe: Enemy): Strike | undefined {
 function openEncounter(run: Run): void {
   run.foeHp = encounter(run.wave, run.step).hp;
   run.broken = 0;
+  run.enemyTurns = run.enemyHeals = run.enemyRecovery = run.castWait = run.castDelay = 0;
+  run.intent = null;
   run.wait = 0.65;
   run.playerGauge = 0;
   run.enemyGauge = 0;
@@ -64,7 +87,7 @@ export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): R
     runId: newRunId(), name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
-    chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0,
+    chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
     phase: 'fight', wait: 0, inventory: [], equipped: {}
   };
   openEncounter(run);
@@ -101,8 +124,8 @@ export function preparedSpellCost(run: Run): number {
 }
 export function workshopPrice(run: Run, id: SpellId): number | undefined {
   const rank = knownRank(run, id);
-  if (run.level < SPELLS[id].level || rank >= MAX_SPELL_RANK) return undefined;
-  return rank === 0 ? SPELLS[id].price : rank === 1 ? 4 : 12;
+  if (run.level < SPELLS[id].level || rank >= Math.max(spellRankCap(run.wave), run.spellRanks[id] ?? 0)) return undefined;
+  return rank === 0 ? SPELLS[id].price : spellUpgradeCost(rank);
 }
 export function buySpell(run: Run, id: SpellId): boolean {
   const price = workshopPrice(run, id);
@@ -150,11 +173,16 @@ export class Battle {
     this.send = send;
     this.random = random;
     this.foe = encounter(run.wave, run.step);
+    this.prepareSeals();
     this.player = stats(run);
   }
   refresh(): void {
     this.foe = encounter(this.run.wave, this.run.step);
+    this.prepareSeals();
     this.player = stats(this.run);
+  }
+  private prepareSeals(): void {
+    this.foe.seals = this.foe.seals.map(strike => strike === 'steel' || knownRank(this.run, strike) ? strike : 'steel');
   }
   tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
@@ -197,34 +225,67 @@ export class Battle {
         continue;
       }
       const playerAt = Math.max(0, (1 - run.playerGauge) / this.player.spd);
-      const enemyAt = Math.max(0, (1 - run.enemyGauge) / this.foe.spd);
+      const enemyAt = run.intent ? run.castWait : Math.max(0, (1 - run.enemyGauge) / this.foe.spd);
       const elapsed = Math.min(remaining, playerAt, enemyAt);
       run.playerGauge += elapsed * this.player.spd;
-      run.enemyGauge += elapsed * this.foe.spd;
+      if (run.intent) run.castWait = Math.max(0, run.castWait - elapsed);
+      else run.enemyGauge += elapsed * this.foe.spd;
       remaining -= elapsed;
       track(elapsed);
       this.regenerate(elapsed);
-      if (run.enemyGauge >= 1 - epsilon) {
+      if (run.intent && run.castWait <= epsilon) {
+        const move = run.intent;
+        run.intent = null;
+        run.castWait = 0;
+        this.enemyAction(move);
+      } else if (!run.intent && run.enemyGauge >= 1 - epsilon) {
         run.enemyGauge = 0;
-        const defense = this.foe.arcane ? this.player.res : this.player.def;
-        const raw = impact(this.foe.atk, defense);
-        const damage = Math.max(0, raw - run.ward);
-        run.ward = 0;
-        run.hp = Math.max(0, run.hp - damage);
-        this.send(damage ? {type: 'hurt', damage, arcane: this.foe.arcane} : {type: 'ward', amount: raw});
-        if (!run.hp) {
-          run.phase = 'fallen';
-          run.deaths++;
-          clock.streak = 0;
-          clock.cleanStreak = 0;
-          clock.waveFallen = true;
-          this.send({type: 'fallen'});
+        const move = nextEnemyMove(run, this.foe);
+        if (move === 'steel') this.enemyAction(move);
+        else {
+          run.intent = move;
+          run.castWait = 1.8;
+          run.castDelay = 0;
+          this.send({type: 'intent', move});
         }
       }
       if (run.phase === 'fight' && run.playerGauge >= 1 - epsilon) {
         run.playerGauge = 0;
         this.playerTurn();
       }
+    }
+  }
+  private recoverEnemy(wanted: number, drain: boolean): void {
+    const run = this.run, foe = this.foe;
+    const ceiling = recoveryCeiling(run, foe);
+    const amount = Math.max(0, Math.min(Math.round(wanted), ceiling - run.foeHp, Math.floor(foe.hp * .18) - run.enemyRecovery));
+    run.foeHp += amount;
+    run.enemyRecovery += amount;
+    if (amount) this.send({type: 'enemy-heal', amount, drain});
+  }
+  private enemyAction(move: EnemyMove): void {
+    const run = this.run;
+    run.enemyTurns++;
+    if (move === 'mend') {
+      run.enemyHeals++;
+      this.recoverEnemy(this.foe.hp * .055, false);
+      return;
+    }
+    const arcane = !['steel', 'heavy'].includes(move);
+    const raw = impact(this.foe.atk * (move === 'heavy' ? 1.35 : move === 'drain' ? .95 : move === 'rime' ? 1 : arcane ? 1.12 : 1), arcane ? this.player.res * (move === 'storm' ? .65 : 1) : this.player.def);
+    const protection = run.ward > 0 ? aegisProtection(run.wardRank).reduction : 0;
+    const reduced = Math.max(1, Math.round(raw * (1 - protection)));
+    if (run.ward > 0) run.ward--;
+    const damage = Math.min(run.hp, reduced);
+    run.hp = Math.max(0, run.hp - reduced);
+    if (move === 'rime') run.playerGauge = Math.max(0, run.playerGauge - .18);
+    this.send({type: 'hurt', damage: reduced, arcane, move, blocked: raw - reduced});
+    if (move === 'drain') this.recoverEnemy(damage * .5, true);
+    if (!run.hp) {
+      run.phase = 'fallen'; run.deaths++;
+      run.chronicle.streak = run.chronicle.cleanStreak = 0;
+      run.chronicle.waveFallen = true;
+      this.send({type: 'fallen'});
     }
   }
   private regenerate(elapsed: number): void {
@@ -235,7 +296,7 @@ export class Battle {
     const spell = SPELLS[run.spell];
     const rank = knownRank(run, run.spell);
     const cost = spellCost(run.spell, rank);
-    const boost = 1 + (rank - 1) * 0.24;
+    const boost = spellBoost(rank);
     let strike: Strike = 'steel';
     const shouldCast = run.spell === 'mend'
       ? this.player.hp - run.hp >= Math.min(this.player.hp * 0.2, this.healPower())
@@ -259,7 +320,9 @@ export class Battle {
           return;
         }
         if (run.spell === 'aegis') {
-          run.ward = Math.round((this.player.hp * 0.06 + this.player.mag * 0.65) * boost);
+          run.ward = aegisProtection(rank).charges;
+          run.wardRank = rank;
+          run.mode = 'steel';
           this.send({type: 'ward', amount: run.ward});
           return;
         }
@@ -276,16 +339,20 @@ export class Battle {
       run.chronicle.seals++;
       this.send({type: 'seal', strike: seal});
     }
-    const power = strike === 'ember' ? 1.36 : strike === 'rime' ? 1.18 : run.spell === 'verdict' ? 2.45 : 1.62;
+    const power = strike === 'ember' ? 1.36 : strike === 'rime' ? 1.18 : 1.62;
     const baseDamage = strike === 'steel' ? impact(this.player.atk, this.foe.def) :
       impact(this.player.mag * power * boost, this.foe.res * (strike === 'storm' ? 0.38 : 1));
-    const trait = this.foe.affinity;
+    const trait = enemyAffinity(run, this.foe);
     const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
       trait?.weak === strike ? 'weak' : undefined;
     if (affinity === 'immune') run.chronicle.immuneHits++;
     const damage = affinity === 'immune' ? 0 : Math.max(1, Math.round(baseDamage *
       (affinity === 'resisted' ? 0.30 : affinity === 'weak' ? 1.5 : 1)));
-    if (strike === 'rime' && damage > 0) run.enemyGauge = Math.max(0, run.enemyGauge - 0.23);
+    if (strike === 'rime' && damage > 0) {
+      const slow = Math.min(.32, .23 + (rank - 1) * .01);
+      if (run.intent) { const delay = Math.min(slow, .6 - run.castDelay); run.castWait += delay; run.castDelay += delay; }
+      else run.enemyGauge = Math.max(0, run.enemyGauge - slow);
+    }
     const nextFloor = sealFloor(this.foe, run.broken);
     const actual = Math.min(Math.max(0, run.foeHp - nextFloor), damage);
     run.foeHp -= actual;

@@ -7,7 +7,8 @@ export const CHRONICLE_COUNTERS = [
 ] as const;
 
 export interface Chronicle extends Record<typeof CHRONICLE_COUNTERS[number], number> {
-  spellUses: Record<SpellId, number>;
+  legacyMastery: number;
+  spellUses: Record<SpellId, number> & {verdict: number};
   waveFallen: boolean;
   gearFreeAttempt: boolean;
   spellFreeAttempt: boolean;
@@ -23,7 +24,7 @@ export function newChronicle(activeSeconds: number | null = 0): Chronicle {
     streak: 0, bestStreak: 0, hits: 0, steelHits: 0, seals: 0, weakHits: 0,
     cleanWaves: 0, cleanStreak: 0, bestCleanStreak: 0, immuneHits: 0, waveFallen: false,
     gearFreeAttempt: true, spellFreeAttempt: true, clearedGearFree: false, clearedSpellFree: false, nearDeathClear: false,
-    finished: false, activeSeconds,
+    finished: false, activeSeconds, legacyMastery: 0,
     spellUses: { ember: 0, mend: 0, rime: 0, storm: 0, aegis: 0, verdict: 0 }
   };
 }
@@ -35,7 +36,7 @@ export const BEST_KEYS = ['streak', 'cleanStreak', 'waves', 'level', 'mastery',
 export interface AchievementProfile {
   totals: Record<typeof TOTAL_KEYS[number], number>;
   best: Record<typeof BEST_KEYS[number], number>;
-  spells: Record<SpellId, number>;
+  spells: Record<SpellId, number> & {verdict: number};
   victories: HeroId[];
   fastest: number | null;
 }
@@ -58,7 +59,7 @@ export function profileFromRun(run: Run): AchievementProfile {
     best: {
       streak: c.bestStreak, cleanStreak: c.bestCleanStreak,
       waves: c.finished ? WAVE_COUNT : run.wave - (run.phase === 'clear' ? 0 : 1), level: run.level,
-      mastery: Math.max(1, ...Object.values(run.spellRanks)), gearFree: Number(c.clearedGearFree),
+      mastery: Math.max(1, c.legacyMastery ?? 0, ...Object.values(run.spellRanks)), gearFree: Number(c.clearedGearFree),
       spellFree: Number(c.clearedSpellFree), nearDeath: Number(c.nearDeathClear)
     },
     spells: {...c.spellUses}, victories: c.finished ? [run.hero] : [], fastest: c.finished ? c.activeSeconds : null
@@ -68,7 +69,7 @@ export function mergeProfile(target: AchievementProfile, source: AchievementProf
   const combine = (a: number, b: number) => sameRun ? Math.max(a, b) : Math.min(Number.MAX_SAFE_INTEGER, a + b);
   for (const key of TOTAL_KEYS) target.totals[key] = combine(target.totals[key], source.totals[key]);
   for (const key of BEST_KEYS) target.best[key] = Math.max(target.best[key], source.best[key]);
-  for (const id of SPELL_IDS) target.spells[id] = combine(target.spells[id], source.spells[id]);
+  for (const id of [...SPELL_IDS, 'verdict'] as const) target.spells[id] = combine(target.spells[id], source.spells[id]);
   for (const hero of source.victories) if (!target.victories.includes(hero)) target.victories.push(hero);
   if (source.fastest !== null) target.fastest = target.fastest === null ? source.fastest : Math.min(target.fastest, source.fastest);
 }
@@ -85,7 +86,7 @@ const kills = (p: AchievementProfile) => p.totals.kills;
 const streak = (p: AchievementProfile) => p.best.streak;
 const hits = (p: AchievementProfile) => p.totals.hits;
 const clean = (p: AchievementProfile) => p.totals.cleanWaves;
-const spells = (p: AchievementProfile) => SPELL_IDS.reduce((sum, id) => sum + p.spells[id], 0);
+const spells = (p: AchievementProfile) => SPELL_IDS.reduce((sum, id) => sum + p.spells[id], p.spells.verdict);
 const waves = (p: AchievementProfile) => p.best.waves;
 const metric = (group: Group, id: string, name: string, description: string,
   target: number, progress: Achievement['progress']): Achievement => ({ group, id, name, description, target, progress });
@@ -129,10 +130,11 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   metric('Magic', 'storm-50', 'Storm Caller', 'Cast Storm Sigil 50 times.', 50, p => p.spells.storm),
   metric('Magic', 'mend-50', 'Mender of Wounds', 'Cast Mend 50 times.', 50, p => p.spells.mend),
   metric('Magic', 'aegis-25', 'Shelter in the Storm', 'Cast Aegis 25 times.', 25, p => p.spells.aegis),
-  metric('Magic', 'verdict-25', 'Thunder’s Judgment', 'Cast Thunder Verdict 25 times.', 25, p => p.spells.verdict),
+  metric('Magic', 'verdict-25', 'Thunder’s Judgment', 'Cast lightning spells 25 times.', 25, p => p.spells.storm + p.spells.verdict),
   metric('Magic', 'seal-16', 'Sealbreaker', 'Break 16 enemy seals.', 16, p => p.totals.seals),
   metric('Magic', 'essence-30', 'Essence Keeper', 'Collect 30 Arcane Essence in total.', 30,
     p => p.totals.essence),
+  metric('Magic', 'mastery-10', 'Arcane Virtuoso', 'Raise a spell to level 10.', 10, p => p.best.mastery),
   metric('Magic', 'mastery-3', 'Master of the Arts', 'Raise a spell to level 3.', 3,
     p => p.best.mastery),
   metric('Campaign', 'wave-1', 'Beyond the Briar', 'Clear the first wave.', 1, waves),
@@ -158,6 +160,6 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
     p => p.best.nearDeath),
   metric('Oddities', 'immune-25', 'Talking to a Wall', 'Strike an immune foe 25 times in total.', 25,
     p => p.totals.immuneHits),
-  metric('Oddities', 'all-spells', 'One of Everything', 'Cast all six spells at least once.', 6,
+  metric('Oddities', 'all-spells', 'One of Everything', 'Cast all five spells at least once.', 5,
     p => SPELL_IDS.filter(id => p.spells[id] > 0).length)
 ];

@@ -62,7 +62,7 @@ test('A Briar Seal stops even extremely strong steel and breaks with Ember Bolt'
 test('Every seal of the final boss blocks damage at its own threshold', () => {
   const r = at(32, 32, 1000);
   const battle = new Battle(r, () => {});
-  for (const seal of ['steel', 'rime', 'storm']) {
+  for (const seal of ['steel', 'ember', 'rime', 'storm', 'steel']) {
     assert.equal(activeSeal(r, battle.foe), seal);
     r.mode = seal === 'steel' ? 'magic' : 'steel';
     r.spell = 'ember';
@@ -247,7 +247,7 @@ test('Essence is awarded once per marked encounter, even after retrying the same
 });
 
 test('Upgrades immediately increase the prepared spell cost', () => {
-  const run = at(2, 1, 12);
+  const run = at(5, 1, 12);
   run.essence = 15;
   assert.equal(buySpell(run, 'aegis'), false);
   run.phase = 'fallen';
@@ -270,21 +270,27 @@ test('Upgrades immediately increase the prepared spell cost', () => {
   assert.equal(knownRank(run, 'aegis'), 0);
 });
 
-test('Aegis absorbs the next hit and is then spent', () => {
-  const run = at(1, 9, 15);
-  run.spellRanks.aegis = 1;
-  run.mode = 'magic';
-  run.spell = 'aegis';
-  const battle = new Battle(run, () => {});
-  battle.foe.spd = .2;
-  battle.tick(1.1);
-  assert.ok(run.ward > 0);
-  const hp = run.hp;
-  run.mode = 'steel';
-  run.enemyGauge = .999;
-  battle.tick(.01);
-  assert.equal(run.ward, 0);
-  assert.equal(run.hp, hp);
+test('Aegis reduces five incoming attacks and leaves turns available for steel', () => {
+  const run = at(1, 1, 15);
+  Object.assign(run, {spell: 'aegis', mode: 'magic', spellRanks: {aegis: 1}});
+  const events = [], battle = new Battle(run, e => events.push(e));
+  battle.foe.hp = run.foeHp = 99999;
+  battle.foe.moves = ['steel']; battle.foe.spd = .01;
+  battle.player.spd = 1;
+  battle.tick(1);
+  assert.equal(run.ward, 5);
+  assert.equal(run.mode, 'steel');
+  const casts = run.chronicle.spellUses.aegis;
+  for (let i = 0; i < 5; i++) {
+    run.enemyGauge = 1;
+    battle.tick(.01);
+    assert.equal(run.ward, 4 - i);
+    const hurt = events.filter(e => e.type === 'hurt').at(-1);
+    assert.ok(hurt.blocked > 0 && hurt.damage > 0);
+  }
+  battle.tick(1);
+  assert.ok(events.some(e => e.type === 'hit' && e.strike === 'steel'));
+  assert.equal(run.chronicle.spellUses.aegis, casts);
 });
 
 test('Version-one saves retain progress and receive Essence for cleared guardians', () => {
@@ -294,7 +300,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 6);
+  assert.equal(migrated?.version, 7);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -311,7 +317,7 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 6);
+  assert.equal(migrated?.version, 7);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
   migrated.run.mode = 'magic';
@@ -351,7 +357,7 @@ test('Defeats reset consecutive streaks while preserving records and clean-wave 
 test('Active time excludes defeat screens and freezes after the first campaign clear', () => {
   const run = at(32, 32, 1000);
   const battle = new Battle(run, () => {});
-  for (const seal of ['steel', 'rime', 'storm']) {
+  for (const seal of ['steel', 'ember', 'rime', 'storm', 'steel']) {
     run.mode = seal === 'steel' ? 'steel' : 'magic';
     if (seal !== 'steel') run.spell = seal;
     battle.tick(1);
@@ -359,7 +365,7 @@ test('Active time excludes defeat screens and freezes after the first campaign c
   assert.equal(run.phase, 'victory');
   assert.ok(run.chronicle.finished);
   const finish = run.chronicle.activeSeconds;
-  assert.ok(finish > 0 && finish < 3);
+  assert.ok(finish > 0 && finish < 5);
   assert.ok(ACHIEVEMENTS.find(item => item.id === 'time-90').progress(profileFromRun(run)));
   battle.tick(2);
   resumeWave(run);
@@ -469,7 +475,7 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   const old = { ...run, chronicle:{...run.chronicle} };
   for (const key of ['gearFreeAttempt','spellFreeAttempt','clearedGearFree','clearedSpellFree','nearDeathClear','immuneHits']) delete old.chronicle[key];
   const migrated = decode(JSON.stringify({version:4, updated:Date.now(), run:old}));
-  assert.equal(migrated.version,6);
+  assert.equal(migrated.version,7);
   assert.equal(migrated.run.chronicle.hits,440);
   assert.equal(migrated.run.chronicle.activeSeconds,1200);
   const battle = new Battle(migrated.run, () => {});
@@ -551,7 +557,7 @@ test('Eight new creatures debut every four waves and return in different palette
     for (let step = 1; step <= 32; step++) {
       const foe = encounter(wave, step);
       if (!foe.art.startsWith('newcomer-')) continue;
-      assert.ok(!foe.boss && foe.seals.length === 0 && foe.essence === 0);
+      assert.ok(!foe.boss && foe.essence === 0);
       const index = Number(foe.art.split('-')[1]) - 1;
       sightings[index].push({wave, hue:foe.hue});
       arrivals.push(foe.art);

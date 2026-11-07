@@ -1,11 +1,11 @@
 import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle, profileFromRun, TOTAL_KEYS, type AchievementProfile } from './achievements.ts';
-import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
+import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, ENEMY_MOVES, aegisProtection, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 
 const PREFIX = 'hollow-oath.slot.';
 const HISTORY = 'hollow-oath.chronicle.';
 const validRunId = (id: unknown): id is string => typeof id === 'string' && /^(?:run-[a-z0-9-]{7,32}|legacy-[a-z0-9]{2,14})$/.test(id);
-export interface Save { version: 6; updated: number; run: Run }
+export interface Save { version: 7; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
@@ -25,9 +25,27 @@ function legacyRunId(run: Run): string {
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4, 5, 6].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 6, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5, 6, 7].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 7, updated: raw.updated, run: raw.run};
     const r = data.run;
+    let retiredMastery = 0;
+    if (r && raw.version < 6) r.runId = legacyRunId(r);
+    // Retire Verdict without losing its purchase value or historical cast counts.
+    if (r && raw.version < 7) {
+      const old = r as Run & {spellRanks: Record<string, number>; spell: string};
+      const rank = old.spellRanks?.verdict;
+      if (rank !== undefined) {
+        if (!numeric(rank, 1, 3, true) || r.level < 8) return null;
+        retiredMastery = rank;
+        r.essence += 8 + (rank >= 2 ? 4 : 0) + (rank >= 3 ? 12 : 0);
+        delete old.spellRanks.verdict;
+      }
+      if ((r.spell as string) === 'verdict') r.spell = 'storm';
+      r.wardRank = Math.min(10, r.spellRanks?.aegis ?? 1);
+      r.ward = r.ward > 0 ? aegisProtection(r.wardRank).charges : 0;
+      r.enemyTurns = r.enemyHeals = r.enemyRecovery = r.castWait = r.castDelay = 0;
+      r.intent = null;
+    }
     if (!r || !HERO_IDS.includes(r.hero) || !numeric(r.level, 1, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.xp, 0, xpGoal(r.level) - 1, true) || !numeric(r.gold, 0, Number.MAX_SAFE_INTEGER, true) ||
       !numeric(r.wave, 1, WAVE_COUNT, true) || !numeric(r.step, 1, 32, true) ||
@@ -37,7 +55,6 @@ export function decode(text: string): Save | null {
       !['fight', 'fallen', 'clear', 'victory'].includes(r.phase) ||
       !Array.isArray(r.inventory) || r.inventory.length > WAVE_COUNT * 12 || !r.equipped ||
       typeof r.equipped !== 'object' || Array.isArray(r.equipped)) return null;
-    if (raw.version < 6) r.runId = legacyRunId(r);
     if (!validRunId(r.runId)) return null;
     const name = r.name === undefined ? '' : normalizeCharacterName(r.name);
     if (name === null) return null;
@@ -52,7 +69,11 @@ export function decode(text: string): Save | null {
     }
     if (!numeric(r.essence, 0, WAVE_COUNT * 6, true) || !Array.isArray(r.essenceClaims) ||
       r.essenceClaims.length > WAVE_COUNT * 4 || !r.spellRanks || typeof r.spellRanks !== 'object' ||
-      Array.isArray(r.spellRanks) || !numeric(r.ward, 0, Number.MAX_SAFE_INTEGER, true)) return null;
+      Array.isArray(r.spellRanks) || !numeric(r.ward, 0, 8, true) || !numeric(r.wardRank, 1, 10, true) ||
+      !numeric(r.enemyTurns, 0, Number.MAX_SAFE_INTEGER, true) || !numeric(r.enemyHeals, 0, 2, true) ||
+      !numeric(r.enemyRecovery, 0, Math.floor(encounter(r.wave, r.step).hp * .18), true) ||
+      !(r.intent === null || Object.hasOwn(ENEMY_MOVES, r.intent)) || !numeric(r.castWait, 0, 2.400001) ||
+      !numeric(r.castDelay, 0, .600001) || (r.intent === null && r.castWait > 0)) return null;
     const claims = new Set<number>();
     let earned = 0;
     for (const id of r.essenceClaims) {
@@ -81,16 +102,18 @@ export function decode(text: string): Save | null {
       r.chronicle = clock;
     }
     const clock = r.chronicle;
+    if (clock) clock.legacyMastery = Math.max(clock.legacyMastery ?? 0, retiredMastery);
+    if (clock?.spellUses && clock.spellUses.verdict === undefined) clock.spellUses.verdict = 0;
     if (raw.version < 5 && clock) {
       clock.gearFreeAttempt = clock.spellFreeAttempt = false;
       clock.clearedGearFree = clock.clearedSpellFree = clock.nearDeathClear = false;
       clock.immuneHits = 0;
     }
-    if (!clock || typeof clock.finished !== 'boolean' || typeof clock.waveFallen !== 'boolean' ||
+    if (!clock || !numeric(clock.legacyMastery, 0, 3, true) || typeof clock.finished !== 'boolean' || typeof clock.waveFallen !== 'boolean' ||
       ![clock.gearFreeAttempt, clock.spellFreeAttempt, clock.clearedGearFree,
         clock.clearedSpellFree, clock.nearDeathClear].every(value => typeof value === 'boolean') ||
       (clock.activeSeconds !== null && !numeric(clock.activeSeconds, 0, Number.MAX_SAFE_INTEGER)) ||
-      !clock.spellUses || !SPELL_IDS.every(id => numeric(clock.spellUses[id], 0, Number.MAX_SAFE_INTEGER, true)) ||
+      !clock.spellUses || ![...SPELL_IDS, 'verdict'].every(id => numeric(clock.spellUses[id as keyof typeof clock.spellUses], 0, Number.MAX_SAFE_INTEGER, true)) ||
       !CHRONICLE_COUNTERS.every(key => numeric(clock[key], 0, Number.MAX_SAFE_INTEGER, true)) ||
       clock.bestStreak > r.kills || clock.streak > clock.bestStreak || clock.cleanWaves > WAVE_COUNT ||
       clock.bestCleanStreak > clock.cleanWaves || clock.cleanStreak > clock.bestCleanStreak ||
@@ -142,10 +165,11 @@ export function listSlots(): {id: string; data: Save | null}[] {
 function readHistory(id: string): AchievementProfile | null {
   try {
     const p = JSON.parse(localStorage.getItem(HISTORY + id) ?? 'null') as AchievementProfile | null;
+    if (p?.spells && p.spells.verdict === undefined) p.spells.verdict = 0;
     const count = (value: unknown) => numeric(value, 0, Number.MAX_SAFE_INTEGER, true);
     if (!p || !p.totals || !p.best || !p.spells ||
       !TOTAL_KEYS.every(key => count(p.totals[key])) || !BEST_KEYS.every(key => count(p.best[key])) ||
-      !SPELL_IDS.every(key => count(p.spells[key])) ||
+      ![...SPELL_IDS, 'verdict'].every(key => count(p.spells[key as keyof typeof p.spells])) ||
       !Array.isArray(p.victories) || p.victories.length > HERO_IDS.length || !p.victories.every(hero => HERO_IDS.includes(hero)) ||
       (p.fastest !== null && !numeric(p.fastest, 0, Number.MAX_SAFE_INTEGER))) return null;
     return p;
@@ -196,5 +220,5 @@ export function deleteSlot(id: string): boolean {
   catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 6, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 7, updated: Date.now(), run} satisfies Save);
 }

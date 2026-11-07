@@ -43,7 +43,7 @@ export function normalizeCharacterName(value: unknown): string | null {
 
 
 export type Strike = 'steel' | 'ember' | 'rime' | 'storm';
-export type SpellId = Exclude<Strike, 'steel'> | 'mend' | 'aegis' | 'verdict';
+export type SpellId = Exclude<Strike, 'steel'> | 'mend' | 'aegis';
 export const ELEMENT_NAMES: Record<Strike, string> = {steel: 'steel', ember: 'fire', rime: 'ice', storm: 'lightning'};
 interface Spell {
   name: string; level: number; cost: number; color: string; text: string;
@@ -54,12 +54,25 @@ export const SPELLS: Record<SpellId, Spell> = {
   mend: {name: 'Mend', level: 2, cost: 6, color: '#9effc1', text: 'Restores HP when wounded. Uses steel while healthy.'},
   rime: {name: 'Rime Lance', level: 4, cost: 5, color: '#92e9ff', strike: 'rime', text: 'Pierces with ice and delays the next enemy strike. Quenches Cinder Seals.'},
   storm: {name: 'Storm Sigil', level: 7, cost: 7, color: '#d4adff', strike: 'storm', text: 'Strikes with lightning and pierces magic defense. Breaks Mirror Seals.'},
-  aegis: {name: 'Aegis', level: 3, cost: 8, color: '#9fe6c0', price: 5, text: 'Wards off part of the next hit. Uses steel while the ward holds.'},
-  verdict: {name: 'Thunder Verdict', level: 8, cost: 12, color: '#e0bbff', strike: 'storm', price: 8, text: 'Calls down a heavy lightning strike. Breaks Mirror Seals.'}
+  aegis: {name: 'Aegis', level: 3, cost: 8, color: '#9fe6c0', price: 5, text: 'Reduces physical and magic damage for several incoming attacks. Returns to steel after casting; charges survive spell changes.'}
 };
 export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
-export const MAX_SPELL_RANK = 3;
-export const spellCost = (id: SpellId, rank: number) => SPELLS[id].cost + (rank - 1) * 2;
+export const MAX_SPELL_RANK = 10;
+export const spellCost = (id: SpellId, rank: number) => SPELLS[id].cost + Math.min(2, Math.max(0, rank - 1)) * 2 + Math.max(0, rank - 3);
+export const spellBoost = (rank: number) => 1 + Math.min(2, rank - 1) * .24 + Math.max(0, rank - 3) * .09;
+export const aegisProtection = (rank: number) => ({reduction: .30 + (Math.max(1, rank) - 1) / 9 * .15, charges: 5 + Math.floor((Math.max(1, rank) - 1) / 3)});
+export const spellRankCap = (wave: number) => Math.min(MAX_SPELL_RANK, 1 + Math.floor((wave - 1) * 9 / 31));
+export const spellUpgradeCost = (rank: number) => 2 + Math.floor((rank - 1) / 3);
+export type EnemyMove = 'steel' | 'ember' | 'rime' | 'storm' | 'heavy' | 'mend' | 'drain';
+export const ENEMY_MOVES: Record<EnemyMove, {name: string; warning: string; color: string}> = {
+  steel: {name: 'Strike', warning: 'Readying steel', color: '#e6c28a'},
+  heavy: {name: 'Crushing Blow', warning: 'Preparing a crushing blow…', color: '#ffba79'},
+  ember: {name: 'Cinder Hex', warning: 'Gathering fire…', color: '#ff9d60'},
+  rime: {name: 'Frost Shard', warning: 'Gathering frost…', color: '#92e9ff'},
+  storm: {name: 'Stormcall', warning: 'Gathering lightning…', color: '#d4adff'},
+  mend: {name: 'Mend', warning: 'Preparing to heal…', color: '#9effc1'},
+  drain: {name: 'Life Drain', warning: 'Gathering a life-draining curse…', color: '#ed92bf'}
+};
 export const SEALS: Record<Strike, {name: string; hint: string; color: string}> = {
   steel: {name: 'Null Seal', hint: 'Strike with steel', color: '#eac180'},
   ember: {name: 'Briar Seal', hint: 'Cast Ember Bolt', color: SPELLS.ember.color},
@@ -120,13 +133,14 @@ const REGULAR_SEALS: Strike[] = ['ember', 'rime', 'storm', 'steel'];
 export interface Enemy {
   name: string; hp: number; atk: number; def: number; res: number; spd: number;
   arcane: boolean; boss: boolean; xp: number; gold: number; art: string;
+  moves: readonly EnemyMove[]; healLimit: number;
   hue: number; seals: readonly Strike[]; essence: number;
   affinity?: {resists: Strike; weak: Strike; immune: boolean};
 }
 
 export function encounter(wave: number, step: number): Enemy {
   const boss = step === ENCOUNTER_COUNT;
-  const elite = !boss && (step === 12 || step === 24) && (wave > 1 || step === 24);
+  const elite = !boss && (wave >= 9 ? step % 6 === 0 : wave >= 2 ? step % 8 === 0 : step === 24);
   const [_, bossName, seal] = WAVES[wave - 1]!;
   const family = wave === 1 && step <= 12 ? step - 1 : ((wave - 1) * 7 + (step - 1) * 5 + Math.floor(step / 9)) % FAMILIES.length;
   const [name, kind] = FAMILIES[family]!;
@@ -137,16 +151,21 @@ export function encounter(wave: number, step: number): Enemy {
   const swift = kind === 'swift';
   const first = wave === 1 && step <= 5;
   const regularSeal = wave === 1 ? 'ember' : REGULAR_SEALS[(wave + (step === 24 ? 2 : 0)) % 4]!;
-  const seals: readonly Strike[] = boss ? (wave === 32 ? ['steel', 'rime', 'storm'] as const :
-    wave >= 9 ? [seal, REGULAR_SEALS[(REGULAR_SEALS.indexOf(seal) + 1 + (wave % 3)) % 4]!] : [seal]) :
-    elite ? [regularSeal] : [];
+  const phaseCount = wave === 32 ? 5 : wave >= 24 ? 4 : wave >= 12 ? 3 : wave >= 5 ? 2 : 1;
+  const baseIndex = REGULAR_SEALS.indexOf(seal);
+  const seals: readonly Strike[] = boss ? Array.from({length: phaseCount}, (_, i) => REGULAR_SEALS[(baseIndex + i) % 4]!) : elite ? [regularSeal] : [];
+  const spellMoves: EnemyMove[] = wave < 3 ? ['ember'] : ['ember', 'rime', 'storm'];
+  const element = spellMoves[(wave + family) % spellMoves.length]!;
+  const moves: EnemyMove[] = boss ? ['steel', element, 'heavy', ...(wave >= 4 && wave % 3 !== 1 ? ['mend' as const] : []), ...(wave >= 8 && wave % 2 === 0 ? ['drain' as const] : [])] :
+    kind === 'hex' ? [element, ...(wave >= 4 ? ['steel' as const, spellMoves[(wave + family + 1) % spellMoves.length]!] : [])] :
+    elite ? ['steel', element, 'heavy'] : wave >= 5 && family % 4 === 0 ? ['steel', 'steel', 'heavy'] : ['steel'];
   const marked = step === 7 || step === 19 || step === 27;
   const affinityIndex = (family + Math.floor((wave - 1) / 4)) % 4;
   const resistances: Strike[] = ['steel', 'ember', 'rime', 'storm'];
   const weaknesses: Strike[] = ['storm', 'rime', 'ember', 'steel'];
   const resist = family === 15 ? 'ember' : resistances[affinityIndex]!;
   const weak = family === 15 ? 'rime' : weaknesses[affinityIndex]!;
-  const affinity = (marked || (family === 15 && wave > 1)) && !seals.includes(resist) ?
+  const affinity = (marked || (wave >= 3 && step % 3 === 0) || (family === 15 && wave > 1)) && !seals.includes(resist) ?
     {resists: resist, weak, immune: step === 27 && wave >= 5 && resist !== 'steel'} : undefined;
   const openingBoost = step <= 2 ? 0 : Math.max(0, 1 - (wave - 1) / 8) * (guard ? 0.22 : swift ? 0 : 0.14);
   return {
@@ -161,7 +180,7 @@ export function encounter(wave: number, step: number): Enemy {
     gold: Math.round((boss ? 130 : 7 + 6 * position + (elite ? 10 : 0)) * scale ** 0.87),
     art: boss ? 'boss-' + wave : arrival?.art ?? 'foe-' + (family + 1),
     hue: boss || (wave === 1 && step < 13) ? 0 : arrival?.hue ?? ((wave - 1) * 39 + Math.floor(step / 7) * 29) % 360,
-    seals, affinity, essence: boss ? 3 : marked ? 1 : 0
+    moves, healLimit: boss ? 2 : 0, seals, affinity, essence: boss ? 3 : marked ? 1 : 0
   };
 }
 

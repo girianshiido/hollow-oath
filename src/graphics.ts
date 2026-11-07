@@ -1,10 +1,10 @@
 import { HEROES, SEALS, type HeroId, type Strike } from './content.ts';
 
 type BladeVariant = 0 | 1 | 2;
-type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal'; start: number; seeds: number[]; blade: BladeVariant};
+type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal' | 'ward' | 'enemy-heal' | 'drain' | 'enemy-ember' | 'enemy-rime' | 'enemy-storm' | 'enemy-drain'; start: number; seeds: number[]; blade: BladeVariant};
 const COLORS: Record<Effect['kind'], string> = {
   steel: '#ffe6ba', ember: '#ff924c', rime: '#9fe9ff', storm: '#d1adff',
-  heal: '#9effc1', hurt: '#ff604d', seal: '#ffe4a3'
+  heal: '#9effc1', hurt: '#ff604d', seal: '#ffe4a3', ward: '#9fe6c0', 'enemy-heal': '#9effc1', drain: '#ed92bf', 'enemy-ember': '#ff924c', 'enemy-rime': '#9fe9ff', 'enemy-storm': '#d1adff', 'enemy-drain': '#ed92bf'
 };
 
 const BLADE_DURATION: Record<HeroId, number> = {
@@ -132,7 +132,7 @@ export class Effects {
     const size = Math.min(w, h);
     for (let i = effects.length - 1; i >= 0; i--) {
       const e = effects[i]!;
-      const duration = e.kind === 'heal' ? 800 : e.kind === 'steel' ? BLADE_DURATION[this.hero] : 490;
+      const duration = ['heal', 'enemy-heal', 'drain', 'ward'].includes(e.kind) ? 800 : e.kind === 'steel' ? BLADE_DURATION[this.hero] : 490;
       const t = Math.max(0, (now - e.start) / duration);
       if (t >= 1) { effects.splice(i, 1); continue; }
       const x = w * 0.5, y = h * (e.kind === 'heal' ? 0.75 : 0.49);
@@ -144,7 +144,22 @@ export class Effects {
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.globalAlpha = a;
-      if (e.kind === 'steel') {
+      if (e.kind.startsWith('enemy-') && e.kind !== 'enemy-heal') {
+        const py = h * (.22 + Math.min(1, t * 2) * .58);
+        ctx.shadowColor = color; ctx.shadowBlur = 18;
+        ctx.lineWidth = 3 * a;
+        ctx.beginPath(); ctx.moveTo(x - size * .09, py - size * .15);
+        ctx.lineTo(x + size * .05, py - size * .07); ctx.lineTo(x - size * .04, py); ctx.lineTo(x, py + size * .08); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, py, size * (.025 + t * .035), 0, Math.PI * 2); ctx.stroke();
+      } else if (e.kind === 'ward') {
+        ctx.translate(x, h * .73); ctx.scale(size * .24, size * .24);
+        ctx.lineWidth = .022; ctx.shadowColor = color; ctx.shadowBlur = 12;
+        ctx.beginPath(); ctx.moveTo(0, -.8); ctx.lineTo(.6, -.5); ctx.lineTo(.5, .25); ctx.quadraticCurveTo(.3, .6, 0, .8); ctx.quadraticCurveTo(-.3, .6, -.5, .25); ctx.lineTo(-.6, -.5); ctx.closePath(); ctx.stroke();
+        ctx.restore(); continue;
+      } else if (e.kind === 'drain') {
+        ctx.lineWidth = 2 * a;
+        ctx.beginPath(); ctx.moveTo(x, h * .8); ctx.bezierCurveTo(x - size * .3, h * .6, x + size * .3, h * .6, x, h * .35); ctx.stroke();
+      } else if (e.kind === 'steel') {
         drawBlade(ctx, this.hero, e.blade, x, y, size, t, color);
       } else if (e.kind === 'storm') {
         ctx.lineWidth = 3 * a;
@@ -170,7 +185,7 @@ export class Effects {
           ctx.shadowColor = color; ctx.shadowBlur = 14;
           ctx.beginPath(); ctx.moveTo(px - r, py - r); ctx.lineTo(px + r * 1.6, py + r * 1.8); ctx.stroke();
         }
-      } else if (e.kind === 'seal' || e.kind === 'heal') {
+      } else if (e.kind === 'seal' || e.kind === 'heal' || e.kind === 'enemy-heal') {
         ctx.lineWidth = 1.8 * a;
         ctx.beginPath();
         ctx.ellipse(x, y, size * (0.11 + t * 0.4), size * (0.08 + t * 0.28), 0, 0, Math.PI * 2);

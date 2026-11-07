@@ -3,11 +3,11 @@ import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound,
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import {
-  CHARACTER_NAME_LIMIT, ELEMENT_NAMES, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
+  CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, spellRankCap, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import { achievementHistory, decode, deleteSlot, listSlots, readSlot, serialize, writeSlot, type Save } from './saves.ts';
@@ -44,7 +44,7 @@ let toastTimer = 0;
 let achievementToastTimer = 0;
 let longTimer = 0;
 let suppressTap = false;
-let bookPointer: {id: number; x: number; y: number} | undefined;
+let actionPointer: {id: number; x: number; y: number} | undefined;
 let saved = true;
 let dirty = false;
 let nextSave = 0;
@@ -194,16 +194,20 @@ function close(): void {
     const opener = dialogKind === 'portrait' ? 'view-portrait' : 'rename-character';
     gearView();
     find(opener).focus({preventScroll: true});
-  } else find<HTMLDialogElement>('sheet').close();
+  } else {
+    dialogKind = '';
+    lastFrame = 0;
+    find<HTMLDialogElement>('sheet').close();
+  }
 }
 
 function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
     <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense.</p>
-    <p><strong>Sword and grimoire.</strong> Tap to switch. Hold the grimoire or tap its caret to choose a spell. On a keyboard, use <kbd>1</kbd> for steel, <kbd>2</kbd> for magic and <kbd>3</kbd> for the spell list. When mana runs low, steel takes over. Tap the grimoire again once you have enough MP.</p>
-    <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Some bosses raise a new seal as their HP falls. Save your mana for the right strike.</p>
+    <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. Aegis protects several incoming hits and returns to steel after casting.</p>
+    <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
-    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. The Grimoire always casts the highest level you have learned. The next wave begins with full HP and MP.</p>
+    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. Spells always cast at the highest level learned, up to level 10 as the campaign progresses. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
 }
@@ -289,54 +293,47 @@ function startArena(run: Run, isNew = false): void {
       <div class="sigil" aria-hidden="true">${icon('mark')}</div>
       <div class="ground" aria-hidden="true"></div>
       <div class="enemy-figure" id="figure"><img id="enemy" alt="" draggable="false"></div>
-      <canvas id="fx" aria-hidden="true"></canvas><div id="numbers" aria-hidden="true"></div>
+      <canvas id="fx" aria-hidden="true"></canvas><div id="numbers" aria-hidden="true"></div><div id="aegis-status" class="ward-status" role="status"></div><div id="enemy-intent" class="enemy-intent" role="status"></div>
     </div>
     <footer class="battle-foot">
       <div class="tally"><span id="step"></span><div id="pips" aria-hidden="true"></div><span>32</span></div>
       <div class="combat-line" id="combat-line">Auto combat active</div>
-      <div class="combat-controls">
-        <button class="combat-button" data-action="steel" id="steel" aria-keyshortcuts="1">
-          ${icon('steel')}<span><b>Sword</b><small>Physical</small></span></button>
-        <div class="book-group">
-          <button class="combat-button" data-action="magic" id="book" aria-keyshortcuts="2" aria-describedby="book-help">
-            ${icon('book')}<span><b>Grimoire</b><small id="selected-spell"></small></span>
-          </button>
-          <button class="spell-caret" data-action="spells" aria-keyshortcuts="3" aria-label="Choose spell" title="Choose spell"><span aria-hidden="true">▴</span></button>
-        </div>
+      <div class="combat-controls" role="group" aria-label="Automatic combat actions">
+        <button class="combat-button" data-action="steel" id="steel" aria-label="Sword · Physical attack" aria-keyshortcuts="1" style="--spell:#eac180">${icon('steel')}<small>ATK</small></button>
+        ${SPELL_IDS.map((id, i) => `<button class="combat-button spell-slot" data-action="ability" data-id="${id}" id="action-${id}" aria-describedby="actions-help" aria-keyshortcuts="${i + 2}" style="--spell:${SPELLS[id].color}">${icon(id === 'aegis' ? 'shield' : id)}<small id="cost-${id}"></small><span class="action-lock" aria-hidden="true">${icon('lock')}</span></button>`).join('')}
       </div>
-      <span class="sr-only" id="book-help">Hold or use Choose spell to open the spell list.</span>
+      <span class="sr-only" id="actions-help">Tap to select automatic casting. Hold a spell, right-click it or press Shift+Enter on it for details and pause combat. Only the framed action is selected. A ! marks the action needed for a seal. Keys 1 to 6 select actions.</span>
     </footer>
     <div id="outcome" hidden></div>
   </main>`);
   effects = new Effects(find<HTMLCanvasElement>('fx'), run.hero);
-  bindBook();
+  bindActions();
   displayEncounter();
   updateHud();
   save();
 }
 
-function bindBook(): void {
-  const book = find('book');
-  book.addEventListener('contextmenu', event => event.preventDefault());
-  book.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || book.hasAttribute('disabled')) return;
-    clearTimeout(longTimer);
-    suppressTap = false;
-    bookPointer = {id: event.pointerId, x: event.clientX, y: event.clientY};
-    book.setPointerCapture(event.pointerId);
-    longTimer = window.setTimeout(() => {
-      suppressTap = true;
-      showSpells();
-    }, 440);
-  });
-  book.addEventListener('pointermove', event => {
-    if (bookPointer?.id === event.pointerId && Math.hypot(event.clientX - bookPointer.x, event.clientY - bookPointer.y) > 12) {
-      suppressTap = true;
+function bindActions(): void {
+  for (const button of app.querySelectorAll<HTMLButtonElement>('.spell-slot')) {
+    const id = button.dataset.id as SpellId;
+    button.addEventListener('contextmenu', event => { event.preventDefault(); spellInfo(id); });
+    button.addEventListener('keydown', event => {
+      if (event.shiftKey && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); spellInfo(id); }
+    });
+    button.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
       clearTimeout(longTimer);
-    }
-  });
-  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    book.addEventListener(name, () => { clearTimeout(longTimer); bookPointer = undefined; });
+      suppressTap = false;
+      actionPointer = {id: event.pointerId, x: event.clientX, y: event.clientY};
+      button.setPointerCapture(event.pointerId);
+      longTimer = window.setTimeout(() => { suppressTap = true; spellInfo(id); }, 440);
+    });
+    button.addEventListener('pointermove', event => {
+      if (actionPointer?.id === event.pointerId && Math.hypot(event.clientX - actionPointer.x, event.clientY - actionPointer.y) > 12) {
+        suppressTap = true; clearTimeout(longTimer);
+      }
+    });
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(name, () => { clearTimeout(longTimer); actionPointer = undefined; });
   }
 }
 function displayEncounter(): void {
@@ -349,7 +346,7 @@ function displayEncounter(): void {
   find('step').textContent = String(r.step).padStart(2, '0');
   find('pips').innerHTML = Array.from({length: 32}, (_, i) => `<i class="${i + 1 < r.step ? 'done' : i + 1 === r.step ? 'now' : ''}"></i>`).join('');
   find('enemy-name').textContent = foe.name;
-  const trait = foe.affinity;
+  const trait = enemyAffinity(r, foe);
   find('affinity').textContent = trait
     ? (trait.immune ? 'Immune to ' : 'Resists ') + ELEMENT_NAMES[trait.resists] + ' · Weak to ' + ELEMENT_NAMES[trait.weak]
     : '';
@@ -385,10 +382,30 @@ function updateHud(): void {
   find('enemy-meter').setAttribute('aria-valuenow', String(r.foeHp));
   find('enemy-meter').setAttribute('aria-valuemax', String(foe.hp));
   find('steel').setAttribute('aria-pressed', String(r.mode === 'steel'));
-  find('book').setAttribute('aria-pressed', String(r.mode === 'magic'));
-  find('book').style.setProperty('--spell', SPELLS[r.spell].color);
-  find('selected-spell').textContent = spellLabel(r, r.spell);
+  for (const id of SPELL_IDS) {
+    const rank = knownRank(r, id), button = find('action-' + id);
+    button.setAttribute('aria-pressed', String(r.mode === 'magic' && r.spell === id));
+    button.dataset.locked = String(!rank);
+    button.classList.toggle('locked', !rank);
+    button.classList.toggle('low-mana', Boolean(rank && r.mp + 1e-8 < spellCost(id, rank)));
+    button.setAttribute('aria-label', spellLabel(r, id) + (rank ? ' · ' + spellCost(id, rank) + ' MP' : ' · Locked, hold for details'));
+    find('cost-' + id).textContent = rank ? spellCost(id, rank) + ' MP' : r.level < SPELLS[id].level ? 'LV ' + SPELLS[id].level : 'Learn';
+  }
+  const protection = aegisProtection(r.wardRank);
+  find('aegis-status').textContent = r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '';
+  const intent = find('enemy-intent'), next = r.intent ?? nextEnemyMove(r, foe);
+  intent.hidden = r.phase !== 'fight';
+  intent.textContent = r.intent ? ENEMY_MOVES[next].warning : 'Next: ' + ENEMY_MOVES[next].name;
+  intent.classList.toggle('casting', Boolean(r.intent));
+  intent.style.setProperty('--intent', ENEMY_MOVES[next].color);
+  find('figure').classList.toggle('preparing', Boolean(r.intent));
+  find('figure').style.setProperty('--intent', ENEMY_MOVES[next].color);
+  intent.style.setProperty('--cast', String(r.intent ? Math.min(1, r.castWait / 2.4) : 0));
+  const trait = enemyAffinity(r, foe);
+  find('affinity').textContent = trait ? (trait.immune ? 'Immune to ' : 'Resists ') + ELEMENT_NAMES[trait.resists] + ' · Weak to ' + ELEMENT_NAMES[trait.weak] : '';
+  if (foe.boss) find('enemy-kind').textContent = 'WAVE GUARDIAN · PHASE ' + (enemyStage(r, foe) + 1) + '/' + foe.seals.length;
   const seal = r.phase === 'fight' ? activeSeal(r, foe) : undefined;
+  for (const button of app.querySelectorAll<HTMLElement>('.combat-button')) button.classList.toggle('recommended', Boolean(seal && (button.id === 'steel' ? seal === 'steel' : button.dataset.id === seal)));
   const sealKey = seal ? seal + ':' + r.broken : '';
   if (sealKey !== displaySeal) {
     const el = find('seal');
@@ -458,8 +475,18 @@ function battleEvent(event: BattleEvent): void {
       if (event.affinity === 'resisted') pop('RESISTED', '#d2c9bb', 'seal-float');
       animate('hit');
       break;
+    case 'intent':
+      break;
+    case 'enemy-heal':
+      void playSound('heal');
+      if (!reduced.matches) effects?.add(event.drain ? 'drain' : 'enemy-heal');
+      pop('+' + fmt(event.amount) + ' HP', '#9effc1', 'enemy-heal-number');
+      break;
     case 'hurt':
-      void playSound('hurt');
+      void playSound(event.move === 'steel' || event.move === 'heavy' ? 'hurt' : event.move === 'drain' ? 'hurt' : event.move === 'mend' ? 'heal' : event.move);
+      if (!reduced.matches && event.arcane) effects?.add('enemy-' + (event.move === 'drain' ? 'drain' : event.move) as 'enemy-ember' | 'enemy-rime' | 'enemy-storm' | 'enemy-drain');
+      if (event.move === 'rime') pop('SLOWED', '#92e9ff', 'seal-float');
+      if (event.blocked > 0) pop('AEGIS −' + fmt(event.blocked), '#9fe6c0', 'seal-float');
       if (!reduced.matches) effects?.add('hurt');
       pop('−' + fmt(event.damage) + ' HP', event.arcane ? '#e6adff' : '#ff9584', 'incoming');
       animate('lunging');
@@ -485,8 +512,8 @@ function battleEvent(event: BattleEvent): void {
       break;
     case 'ward':
       void playSound('heal');
-      if (!reduced.matches) effects?.add('heal');
-      pop('WARD ' + fmt(event.amount), '#a4ffc0', 'incoming');
+      if (!reduced.matches) effects?.add('ward');
+      pop('AEGIS · ' + fmt(event.amount) + ' HITS', '#a4ffc0', 'incoming');
       break;
     case 'empty':
       paceHint = 'Low MP · Switched to steel';
@@ -525,16 +552,22 @@ function spellLabel(run: Run, id: SpellId): string {
   const rank = knownRank(run, id);
   return SPELLS[id].name + (rank ? ' Lvl ' + rank : '');
 }
-function showSpells(): void {
+function spellInfo(id: SpellId): void {
+  if (!battle || screen !== 'arena') return;
+  const r = current(), spell = SPELLS[id], rank = knownRank(r, id), shown = Math.max(1, rank);
+  const protection = aegisProtection(shown);
+  const detail = id === 'aegis' ? `−${Math.round(protection.reduction * 100)}% physical and magic damage for ${protection.charges} incoming attacks. Cast once, then return to steel. Active charges survive changing spells. Cannot stack or refresh remaining charges.` :
+    id === 'mend' ? `Healing ×${spellBoost(shown).toFixed(2)}. Casts only when wounded; otherwise uses steel.` :
+    `Power ×${spellBoost(shown).toFixed(2)} of the base spell.${id === 'rime' ? ' Delays enemy attacks; a prepared spell can be delayed by at most 0.6 seconds in total.' : ''}`;
+  const unlock = rank ? '' : r.level < spell.level ? `Reach character level ${spell.level}.${spell.price ? ' Then learn it at the Workshop after a defeat.' : ' Learned automatically.'}` : 'Learn this spell at the Workshop after a defeat for ' + spell.price + ' Arcane Essence.';
+  openDialog('spell-info', spellLabel(r, id), `<div class="spell-detail" style="--spell:${spell.color}"><div class="spell-symbol">${icon(id === 'aegis' ? 'shield' : id)}</div><p>${spell.text}</p><p>${detail}</p><p><strong>${rank ? 'Current level: ' + rank + ' / 10' : 'Not learned · Level 1 preview'} · ${spellCost(id, shown)} MP</strong></p>${unlock ? '<p>' + unlock + '</p>' : ''}<p class="sheet-foot">Combat is paused. Closing this page keeps your selected action.</p><button class="secondary wide" data-action="close">Return to combat ${icon('next')}</button></div>`, 'SPELL DETAILS');
+}
+function selectSpell(id: SpellId): void {
   if (!battle || current().phase !== 'fight') return;
-  const r = current();
-  openDialog('spells', 'The Grimoire', `<div class="sheet-caption"><span>${fmt(Math.floor(r.mp))} / ${fmt(battle.player.mp)} MP</span><span>CHOOSE A SPELL</span></div>
-    <div class="spell-list">${SPELL_IDS.map(id => {
-      const s = SPELLS[id], rank = knownRank(r, id);
-      return `<button class="spell-row" data-action="spell" data-id="${id}" ${!rank ? 'disabled' : ''} style="--spell:${s.color}">
-        <span class="spell-symbol">${icon(id)}</span><span><strong>${spellLabel(r, id)}</strong><small>${s.text}</small></span>
-        <span class="spell-cost">${!rank ? icon('lock') + (s.level > r.level ? ' LV ' + s.level : ' Workshop') : spellCost(id, rank) + ' MP'}</span></button>`;
-    }).join('')}</div><p class="sheet-foot">Choose a spell to prepare and switch to magic. Combat pauses while this book is open.</p>`, 'ARCANE ARTS');
+  if (!knownRank(current(), id)) { spellInfo(id); return; }
+  if (id === 'aegis' && current().ward > 0) { spellInfo(id); return; }
+  current().spell = id;
+  mode('magic');
 }
 function mode(value: 'steel' | 'magic'): void {
   if (!battle || current().phase !== 'fight') return;
@@ -600,13 +633,13 @@ function gearView(): void {
     body = `<div class="sheet-caption"><span>ARCANE WORKSHOP</span><span class="coin">◆ ${fmt(r.essence)} Essence</span></div>
       <div class="gear-list">${SPELL_IDS.map(id => {
         const s = SPELLS[id], rank = knownRank(r, id), price = workshopPrice(r, id);
-        const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? 'Max rank' : '◆ ' + price;
+        const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? (rank >= 10 ? 'Max level' : 'Wave ' + (Math.ceil(rank * 31 / 9) + 1)) : '◆ ' + price;
         const action = (rank ? 'Upgrade ' : 'Learn ') + s.name;
         return `<div class="gear-row"><span><strong>${spellLabel(r, id)}</strong>
           <small>${s.text}</small>
-          ${price === undefined ? '' : `<small>${rank ? 'Next rank · ' : 'Learn · '}${spellCost(id, rank + 1)} MP per cast</small>`}</span>
+          ${price === undefined ? '' : `<small>${rank ? 'Next level · ' : 'Learn · '}${spellCost(id, rank + 1)} MP per cast</small>`}</span>
           <button class="compact" data-action="buy-spell" data-id="${id}" ${price === undefined || r.essence < price ? 'disabled' : ''} aria-label="${price === undefined ? status : action + ' for ' + price + ' Arcane Essence'}">${status}</button></div>`;
-      }).join('')}</div><p class="sheet-foot">The Grimoire always casts the highest learned level. Upgrades raise MP costs. Marked foes and guardians yield Essence once per file.</p>`;
+      }).join('')}</div><p class="sheet-foot">Spells always use their highest learned level. Upgrades raise MP costs. Current wave allows level ${spellRankCap(r.wave)} / 10. Marked foes and guardians yield Essence once per file.</p>`;
   } else {
     body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
       <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
@@ -910,19 +943,10 @@ app.addEventListener('click', event => {
       break;
     }
     case 'steel': mode('steel'); break;
-    case 'magic':
-      if (!suppressTap || event.detail === 0) mode('magic');
+    case 'ability':
+      if (!suppressTap || event.detail === 0) selectSpell(id as SpellId);
       suppressTap = false;
       break;
-    case 'spells': showSpells(); break;
-    case 'spell': {
-      const spell = id as SpellId;
-      if (!knownRank(current(), spell)) break;
-      current().spell = spell;
-      mode('magic');
-      close();
-      break;
-    }
     case 'resume-wave':
       resumeWave(current());
       battle!.refresh();
@@ -944,8 +968,10 @@ window.addEventListener('keydown', event => {
   if (event.repeat || screen !== 'arena' || dialogKind || event.altKey || event.ctrlKey || event.metaKey) return;
   void unlockAudio();
   if (event.key === '1') mode('steel');
-  if (event.key === '2') mode('magic');
-  if (event.key === '3') showSpells();
+  const index = Number(event.key) - 2;
+  if (index >= 0 && index < SPELL_IDS.length && Number.isInteger(index)) {
+    if (event.shiftKey) spellInfo(SPELL_IDS[index]!); else selectSpell(SPELL_IDS[index]!);
+  }
   if (event.key === 'Escape') options();
 });
 document.addEventListener('visibilitychange', () => {
