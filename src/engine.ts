@@ -8,6 +8,7 @@ export type Phase = 'fight' | 'fallen' | 'clear' | 'victory';
 export interface Run {
   runId: string;
   name: string;
+  journalRead: number;
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
@@ -90,7 +91,7 @@ export function newRunId(): string {
 }
 export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): Run {
   const run: Run = {
-    runId: newRunId(), name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
+    runId: newRunId(), journalRead: 0, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
     chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,

@@ -59,6 +59,8 @@ export function decode(text: string): Save | null {
     const name = r.name === undefined ? '' : normalizeCharacterName(r.name);
     if (name === null) return null;
     r.name = name || HEROES[r.hero].defaultName;
+    if (r.journalRead === undefined) r.journalRead = 0;
+    if (!numeric(r.journalRead, 0, 255, true)) return null;
     if (raw.version === 1) {
       if (SPELLS[r.spell].price) return null;
       const cleared = r.phase === 'clear' || r.phase === 'victory' ? r.wave : r.wave - 1;

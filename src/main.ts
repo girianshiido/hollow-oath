@@ -2,6 +2,7 @@ import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, emptyProfile, mergeProfile, profileFr
 import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound, setMusic, stopSounds, unlockAudio } from './audio.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
+import { CHAPTERS, journalArt, journalUnlocked, journalUnread, journalVoice } from './journal.ts';
 import { installGameGestures } from './gestures.ts';
 import { installInstructions, renderInstall, requestInstall } from './install.ts';
 import {
@@ -68,7 +69,7 @@ function mount(name: string, body: string): void {
   effects?.dispose();
   effects = undefined;
   dialogKind = '';
-  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div>';
+  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div><button id="journal-notice" hidden class="journal-notice" data-action="journal-new" aria-label="Read the new Chronicle entry"></button>';
   const dialog = find<HTMLDialogElement>('sheet');
   dialog.addEventListener('close', () => {
     dialogKind = '';
@@ -77,8 +78,14 @@ function mount(name: string, body: string): void {
     dialogOpener = null;
   });
   dialog.addEventListener('cancel', event => {
-    if (dialogKind !== 'portrait' && dialogKind !== 'rename') return;
+    if (!['portrait', 'rename', 'journal-art', 'journal-entry', 'journal-list'].includes(dialogKind)) return;
     event.preventDefault();
+    close();
+  });
+  dialog.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !dialogKind.startsWith('journal-')) return;
+    event.preventDefault();
+    event.stopPropagation();
     close();
   });
   dialog.addEventListener('click', event => {
@@ -185,7 +192,9 @@ function slotScreen(): void {
 
 function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLOW OATH'): void {
   const dialog = find<HTMLDialogElement>('sheet');
+  const journalNavigation = kind.startsWith('journal-') || dialogKind.startsWith('journal-');
   dialogKind = kind;
+  dialog.classList.toggle('journal-expanded', kind === 'journal-art');
   dialog.innerHTML = `<div class="sheet-inner"><header><div><p class="kicker">${kicker}</p><h2 id="sheet-title">${heading}</h2></div>
     <button class="round" data-action="close" aria-label="Close">${icon('close')}</button></header>${body}</div>`;
   if (!dialog.open) {
@@ -194,8 +203,15 @@ function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLO
     dialog.showModal();
     if (battle) save();
   }
+  if (journalNavigation) {
+    dialog.querySelector<HTMLButtonElement>('header button')?.focus({preventScroll: true});
+    dialog.scrollTop = 0;
+  }
 }
 function close(): void {
+  if (dialogKind === 'journal-art') { journalEntry(journalIndex); return; }
+  if (dialogKind === 'journal-entry') { journalView(); return; }
+  if (dialogKind === 'journal-list' && journalFromOptions) { options(); return; }
   if (dialogKind === 'portrait' || dialogKind === 'rename') {
     const opener = dialogKind === 'portrait' ? 'view-portrait' : 'rename-character';
     gearView();
@@ -230,12 +246,12 @@ function beginStory(run: Run, ending: boolean): void {
 }
 function storyPages(run: Run, ending: boolean): {heading: string; text: string}[] {
   return ending ? [
-    {heading: 'The last shadow falls.', text: `${run.name} has defeated the Hollow King. Across thirty-two waves, every monster that stood between the realm and the dawn has fallen.`},
-    {heading: 'The kingdom breathes again.', text: 'The eclipse breaks. Roads open, bells ring, and lights return to windows long abandoned. The people of the kingdom are safe at last.'},
-    {heading: 'An oath fulfilled.', text: `The scars will remain, but so will hope. And wherever the story is told, they will remember the name ${run.name}.`}
+    {heading: 'The last shadow falls.', text: `${run.name} has defeated the Hollow King. The crown reaches for another voice, but the guardians’ names and the complete promise have survived. Their watch is over.`},
+    {heading: 'The kingdom breathes again.', text: 'Thirty-two links break above the throne. The guardians are released, and the eclipse opens to the dawn. Roads and windows fill with light; the kingdom can begin to heal.'},
+    {heading: 'An oath fulfilled.', text: `${journalVoice(run.hero, CHAPTERS[7])} Wherever the story is told, they will remember the name ${run.name}.`}
   ] : [
-    {heading: 'A kingdom beneath the eclipse.', text: 'When the sun vanished behind a hollow crown, monsters poured from the forgotten gates. Thirty-two waves now stand between the kingdom and the dawn.'},
-    {heading: 'One oath remains.', text: `${run.name} steps into the dark. Steel may falter, and magic may fade. Yet every fall brings knowledge, and every return brings the dawn closer.`}
+    {heading: 'A kingdom beneath the eclipse.', text: 'Long ago, a king bound thirty-two guardians to his crown and led his people through a night of ruin. The people survived. The sun never returned. Now the guardians haunt the roads they once kept safe.'},
+    {heading: 'One oath remains.', text: `${run.name} steps into the dark. Beyond the fallen sanctuaries, fragments of the first promise remain. Find the guardians’ names. Discover what binds them. Every return brings the dawn closer.`}
   ];
 }
 function showStory(): void {
@@ -249,6 +265,7 @@ function showStory(): void {
       <button class="secondary wide" data-action="story-next">${final ? storyEnding ? 'See the dawn' : 'Enter the Hollow' : 'Continue'} ${icon('next')}</button>
     </div>
   </main>`);
+  if (storyEnding && storyPage === 0 && !(storyRun!.journalRead & 128)) notifyJournal(32);
 }
 function advanceStory(): void {
   if (!storyRun || (screen !== 'prologue' && screen !== 'epilogue')) return;
@@ -259,7 +276,7 @@ function advanceStory(): void {
     <img class="ending-art" src="${art('ending-' + run.hero)}" alt="${escapeHtml(run.name)}, the ${HEROES[run.hero].name}, overlooking the saved kingdom at dawn">
     <div class="ending-shade" aria-hidden="true"></div>
     <div class="title-atmosphere ending-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="ending-inscription"><p class="kicker">THE DAWN REMEMBERS</p><h1 id="ending-title">The End</h1><p>${escapeHtml(run.name)} · ${HEROES[run.hero].name}</p></div>
+    <div class="ending-inscription"><p class="kicker">THE DAWN REMEMBERS</p><h1 id="ending-title">The End</h1><p>${escapeHtml(run.name)} · ${HEROES[run.hero].name}</p><button class="text-action" data-action="journal">Read the Chronicle</button></div>
     <button class="secondary" data-action="exit">Return to Title ${icon('next')}</button>
   </main>`);
 }
@@ -539,6 +556,7 @@ function battleEvent(event: BattleEvent): void {
       if (event.loot) toast('Relic found · ' + gearName(event.loot, current().hero));
       rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot, current().hero) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
+      if (battle?.foe.boss && event.essence && CHAPTERS.some(c => c.wave === current().wave)) notifyJournal(current().wave);
       save();
       break;
     case 'enter':
@@ -663,6 +681,47 @@ function gearView(): void {
   openDialog('gear', 'The Armory', `<div class="gear-tabs" role="group" aria-label="Armory pages">${tabs.map(([id, name]) =>
     `<button data-action="gear-tab" data-id="${id}" aria-pressed="${gearTab === id}" ${(id === 'shop' || id === 'workshop') && !shopOpen ? 'disabled' : ''}>${name}</button>`).join('')}</div>${shopOpen ? '' : '<p class="shop-note">The Shop and Workshop open after a defeat, before you retry.</p>'}${body}`, shopOpen ? 'RECOVERY CAMP' : 'EQUIPMENT');
 }
+let journalIndex = 0;
+let journalFromOptions = false;
+let journalTimer = 0;
+function notifyJournal(wave: number): void {
+  const index = CHAPTERS.findIndex(c => c.wave === wave);
+  if (index < 0) return;
+  journalIndex = index;
+  const chapter = CHAPTERS[index]!, node = find('journal-notice');
+  node.innerHTML = `<img src="${art(journalArt(current(), chapter))}" alt=""><span>Chronicle updated<small>${chapter.title}</small></span>`;
+  node.hidden = false;
+  node.classList.add('shown');
+  clearTimeout(journalTimer);
+  journalTimer = window.setTimeout(() => { node.classList.remove('shown'); node.hidden = true; }, 4500);
+}
+function journalView(): void {
+  if (!battle) return;
+  const r = current();
+  openDialog('journal-list', 'The Chronicle', `<p class="sheet-foot">Memories recovered along this adventure. Reading pauses combat.</p><div class="journal-list">${CHAPTERS.map((chapter,index) => {
+    const unlocked = journalUnlocked(r, chapter.wave);
+    return `<button class="journal-card" data-action="journal-entry" data-id="${index}" ${unlocked ? '' : 'disabled'}>${unlocked ? `<img src="${art(journalArt(r,chapter))}" alt="" loading="lazy">` : `<span class="journal-locked">${icon('lock')}</span>`}<span><small>AFTER WAVE ${chapter.wave}</small><strong>${unlocked ? chapter.title : 'Undiscovered memory'}</strong>${unlocked && !(r.journalRead & (1<<index)) ? '<em>Unread</em>' : ''}</span></button>`;
+  }).join('')}</div><button class="secondary wide" data-action="close">${journalFromOptions ? 'Back to options' : 'Return'} ${icon('back')}</button>`, 'THE THIRTY-TWO GUARDIANS');
+}
+function journalEntry(index: number): void {
+  if (!battle || !Number.isInteger(index) || index < 0 || index >= CHAPTERS.length) return;
+  const chapter = CHAPTERS[index]!, r = current();
+  if (!journalUnlocked(r,chapter.wave)) return;
+  journalIndex = index;
+  r.journalRead |= 1 << index;
+  find('journal-notice').classList.remove('shown');
+  find('journal-notice').hidden = true;
+  save();
+  openDialog('journal-entry', chapter.title, `<article class="journal-entry"><button class="journal-image" data-action="journal-art" aria-label="Enlarge illustration"><img src="${art(journalArt(r,chapter))}" alt="${chapter.title}"><span>${icon('zoom')} View illustration</span></button>${chapter.text.map(text=>'<p>'+escapeHtml(text.replaceAll('{name}',r.name))+'</p>').join('')}<aside><span class="kicker">${HEROES[r.hero].name.toUpperCase()} · PERSONAL RECORD</span><p>${escapeHtml(journalVoice(r.hero,chapter))}</p></aside></article><button class="secondary wide" data-action="close">Back to Chronicle ${icon('back')}</button>`, 'AFTER WAVE ' + chapter.wave);
+  find('sheet').scrollTop = 0;
+}
+function journalZoom(): void {
+  if (!battle) return;
+  const chapter = CHAPTERS[journalIndex]!;
+  openDialog('journal-art', chapter.title, `<figure class="journal-large"><img src="${art(journalArt(current(),chapter))}" alt="${chapter.title}"></figure><button class="secondary wide" data-action="close">Back to the memory ${icon('back')}</button>`, 'ILLUSTRATED CHRONICLE');
+  find('sheet').scrollTop = 0;
+}
+
 function portrait(): void {
   const {hero} = current();
   openDialog('portrait', escapeHtml(current().name), `
@@ -762,6 +821,7 @@ function options(): void {
     </fieldset>
     <button class="secondary wide" data-action="install"><span>Install game</span>${icon('install')}</button>
     <button class="secondary wide" data-action="achievements">Achievements ${icon('mark')}</button>
+    <button class="secondary wide" data-action="journal">Chronicle${journalUnread(current()) ? ' · ' + journalUnread(current()) + ' unread' : ''} ${icon('book')}</button>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
     <button class="secondary wide" id="update-game" data-action="update" hidden><span>Check for updates</span>${icon('next')}</button>
     <p id="update-status" class="update-status" role="status"></p>
@@ -944,6 +1004,10 @@ app.addEventListener('click', event => {
     case 'help': help(); break;
     case 'close': close(); break;
     case 'options': options(); break;
+    case 'journal': journalFromOptions = dialogKind === 'options'; journalView(); break;
+    case 'journal-new': journalFromOptions = false; journalEntry(journalIndex); break;
+    case 'journal-entry': journalEntry(Number(id)); break;
+    case 'journal-art': journalZoom(); break;
     case 'achievements': achievements(); break;
     case 'visit-shop':
     case 'gear':
