@@ -61,6 +61,12 @@ export function enemyAffinity(run: Run, foe: Enemy): Enemy['affinity'] {
 function recoveryCeiling(run: Run, foe: Enemy): number {
   return foe.seals.length ? sealFloor(foe, Math.max(enemyStage(run, foe), run.broken - 1, 0)) : foe.hp;
 }
+export function enemyPreparation(foe: Enemy, move: EnemyMove): number {
+  if (move === 'steel') return 0;
+  if (foe.boss) return 1.8;
+  // Routine spells use the normal Speed clock. Only special blows need an extra wind-up.
+  return move === 'heavy' || move === 'mend' || move === 'drain' ? 1 : 0;
+}
 export function nextEnemyMove(run: Run, foe: Enemy): EnemyMove {
   const moves = foe.moves;
   const move = moves[(run.enemyTurns + enemyStage(run, foe)) % moves.length]!;
@@ -140,10 +146,16 @@ export function availableEssence(run: Run, foe: Enemy): number {
   return run.essenceClaims.includes(claim) ? 0 : foe.essence;
 }
 
+export function purchasePrice(run: Run, gear: Gear): number {
+  if (gear.slot !== 'weapon' || gear.relic) return gearPrice(gear);
+  const prior = run.inventory.filter(item => item.slot === 'weapon' && !item.relic && item.tier < gear.tier).sort((a, b) => b.tier - a.tier)[0];
+  const higherOwned = run.inventory.some(item => item.slot === 'weapon' && !item.relic && item.tier >= gear.tier);
+  return gearPrice(gear) - (prior && !higherOwned ? gearPrice(prior) : 0);
+}
 export function buyGear(run: Run, gear: Gear): boolean {
   if (!canShop(run) || gear.relic || gear.tier < 1 || gear.tier > run.wave || !Number.isInteger(gear.tier) ||
-      run.gold < gearPrice(gear) || run.inventory.some(item => gearId(item) === gearId(gear))) return false;
-  run.gold -= gearPrice(gear);
+      run.gold < purchasePrice(run, gear) || run.inventory.some(item => gearId(item) === gearId(gear))) return false;
+  run.gold -= purchasePrice(run, gear);
   run.inventory.push(gear);
   return true;
 }
@@ -158,6 +170,12 @@ export function equipGear(run: Run, gear: Gear | undefined, slot: GearSlot): voi
   const next = stats(run);
   if (run.hp > 0) run.hp = Math.max(1, Math.min(next.hp, run.hp * next.hp / old.hp));
   run.mp = Math.min(run.mp, next.mp);
+}
+export function weaponRank(run: Run): number {
+  return run.inventory.find(gear => gear.slot === 'weapon' && run.equipped.weapon === gearId(gear))?.tier ?? 1;
+}
+export function wavePower(run: Run): number {
+  return 2 ** -Math.max(0, run.wave - weaponRank(run));
 }
 const impact = (power: number, protection: number) => Math.max(1, Math.round(power * 54 / (54 + protection)));
 
@@ -241,10 +259,11 @@ export class Battle {
       } else if (!run.intent && run.enemyGauge >= 1 - epsilon) {
         run.enemyGauge = 0;
         const move = nextEnemyMove(run, this.foe);
-        if (move === 'steel') this.enemyAction(move);
+        const preparation = enemyPreparation(this.foe, move);
+        if (!preparation) this.enemyAction(move);
         else {
           run.intent = move;
-          run.castWait = 1.8;
+          run.castWait = preparation;
           run.castDelay = 0;
           this.send({type: 'intent', move});
         }
@@ -272,7 +291,7 @@ export class Battle {
       return;
     }
     const arcane = !['steel', 'heavy'].includes(move);
-    const raw = impact(this.foe.atk * (move === 'heavy' ? 1.35 : move === 'drain' ? .95 : move === 'rime' ? 1 : arcane ? 1.12 : 1), arcane ? this.player.res * (move === 'storm' ? .65 : 1) : this.player.def);
+    const raw = this.rollDamage(impact(this.foe.atk * (move === 'heavy' ? 1.35 : move === 'drain' ? .95 : move === 'rime' ? 1 : arcane ? 1.12 : 1), arcane ? this.player.res * (move === 'storm' ? .65 : 1) : this.player.def));
     const protection = run.ward > 0 ? aegisProtection(run.wardRank).reduction : 0;
     const reduced = Math.max(1, Math.round(raw * (1 - protection)));
     if (run.ward > 0) run.ward--;
@@ -287,6 +306,9 @@ export class Battle {
       run.chronicle.waveFallen = true;
       this.send({type: 'fallen'});
     }
+  }
+  private rollDamage(base: number): number {
+    return Math.max(1, Math.round(base * (.88 + Math.max(0, Math.min(1, this.random())) * .24)));
   }
   private regenerate(elapsed: number): void {
     this.run.mp = Math.min(this.player.mp, this.run.mp + elapsed * this.player.regen);
@@ -346,8 +368,8 @@ export class Battle {
     const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
       trait?.weak === strike ? 'weak' : undefined;
     if (affinity === 'immune') run.chronicle.immuneHits++;
-    const damage = affinity === 'immune' ? 0 : Math.max(1, Math.round(baseDamage *
-      (affinity === 'resisted' ? 0.30 : affinity === 'weak' ? 1.5 : 1)));
+    const damage = affinity === 'immune' ? 0 : this.rollDamage(baseDamage * wavePower(run) *
+      (affinity === 'resisted' ? .30 : affinity === 'weak' ? 1.5 : 1));
     if (strike === 'rime' && damage > 0) {
       const slow = Math.min(.32, .23 + (rank - 1) * .01);
       if (run.intent) { const delay = Math.min(slow, .6 - run.castDelay); run.castWait += delay; run.castDelay += delay; }

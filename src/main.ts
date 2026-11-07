@@ -7,7 +7,7 @@ import {
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, type BattleEvent, type Run } from './engine.ts';
+import { activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, purchasePrice, weaponRank, wavePower, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import { achievementHistory, decode, deleteSlot, listSlots, readSlot, serialize, writeSlot, type Save } from './saves.ts';
@@ -18,6 +18,7 @@ const art = (name: string) => embeddedArt?.[name] ?? new URL('art/' + name + '.w
 const find = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const number = new Intl.NumberFormat('en-US', {maximumFractionDigits: 1});
 const fmt = (x: number) => number.format(x);
+const powerText = (run: Run) => wavePower(run) * 100 < .1 ? 'below 0.1%' : fmt(wavePower(run) * 100) + '%';
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const savedDate = new Intl.DateTimeFormat('en', {dateStyle: 'medium', timeStyle: 'short'});
 const escapeHtml = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
@@ -203,7 +204,7 @@ function close(): void {
 
 function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
-    <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense.</p>
+    <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense. Attack damage varies by ±12%. Each weapon rank below the wave halves offensive power; a weapon at the current wave rank restores full power. This affects both steel and damaging spells, while Mend and Aegis keep their normal effects.</p>
     <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. Aegis protects several incoming hits and returns to steel after casting.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
@@ -360,6 +361,7 @@ function displayEncounter(): void {
   const figure = find('figure');
   figure.className = 'enemy-figure ' + (r.foeHp === 0 ? 'slain' : 'entering');
   if (r.step < 32) new Image().src = art(encounter(r.wave, r.step + 1).art);
+  if (r.step === 1 && r.wave > 1 && wavePower(r) < 1) toast('Wave ' + r.wave + ' · Stronger wards. Weapon rank ' + r.wave + ' restores full power.');
   displaySeal = '';
 }
 
@@ -417,7 +419,8 @@ function updateHud(): void {
     displayPhase = r.phase;
     outcome();
   }
-  find('combat-line').textContent = paceHint || rewardLine || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + preparedSpellCost(r) + ' MP per cast');
+  const power = wavePower(r);
+  find('combat-line').textContent = (power < 1 ? 'Wave ward · ' + powerText(r) + ' power · Weapon rank ' + weaponRank(r) + '/' + r.wave : '') || paceHint || rewardLine || (r.mode === 'steel' ? 'Auto combat · Steel ready' : 'Auto combat · ' + preparedSpellCost(r) + ' MP per cast');
 }
 function outcome(): void {
   const r = current(), el = find('outcome');
@@ -621,6 +624,7 @@ function gearView(): void {
       </button><span><strong>${escapeHtml(r.name)}</strong><small>${HEROES[r.hero].name} · Lv. ${fmt(r.level)}<br>${fmt(r.xp)} / ${fmt(xpGoal(r.level))} XP</small></span>
       <button class="compact rename-character" id="rename-character" data-action="rename">Rename</button></div>
       <dl class="stat-grid">${Object.entries(STAT_NAMES).map(([key, name]) => `<div><dt>${name}</dt><dd>${statText(key as keyof Stats, s[key as keyof Stats])}</dd></div>`).join('')}</dl>
+      <p class="sheet-foot">Weapon rank ${weaponRank(r)} / Wave ${r.wave} · ${powerText(r)} offensive power. Each missing weapon rank halves steel and spell damage. Upgrade your weapon at the recovery camp.</p>
       <p class="sheet-foot">${fmt(r.kills)} foes slain · ${fmt(r.deaths)} falls · ${fmt(r.inventory.length)} gear owned</p><p class="sheet-foot">${fmt(r.essence)} Arcane Essence</p>`;
   } else if (gearTab === 'equip') {
     body = `<div class="gear-list">${GEAR_SLOTS.map(g => {
@@ -646,8 +650,8 @@ function gearView(): void {
       <div class="gear-list">${GEAR_SLOTS.map(g => {
         const gear = {slot: g, tier: shopTier, relic: false};
         const owned = r.inventory.some(item => gearId(item) === gearId(gear));
-        const price = gearPrice(gear), name = gearName(gear, r.hero);
-        return `<div class="gear-row"><span><strong>${name}</strong><small>${bonusText(gear)}</small></span>
+        const price = purchasePrice(r, gear), name = gearName(gear, r.hero);
+        return `<div class="gear-row"><span><strong>${name}</strong><small>${bonusText(gear)}</small>${g === 'weapon' && price < gearPrice(gear) ? '<small>Weapon upgrade credit included · Keeps your collection</small>' : ''}</span>
           <button class="compact" data-action="buy" data-id="${g}" ${owned || r.gold < price ? 'disabled' : ''} aria-label="${owned ? name + ' owned' : 'Buy ' + name + ' for ' + price + ' gold'}">${owned ? 'Owned' : '◆ ' + fmt(price)}</button></div>`;
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }

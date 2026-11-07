@@ -167,13 +167,18 @@ export function encounter(wave: number, step: number): Enemy {
   const weak = family === 15 ? 'rime' : weaknesses[affinityIndex]!;
   const affinity = (marked || (wave >= 3 && step % 3 === 0) || (family === 15 && wave > 1)) && !seals.includes(resist) ?
     {resists: resist, weak, immune: step === 27 && wave >= 5 && resist !== 'steel'} : undefined;
+  const defenseProfile = [0.65, 1.35, .85, 1.7, 1.1, .75, 1.5, .95];
+  const armorFactor = defenseProfile[family % defenseProfile.length]!;
+  const magicFactor = defenseProfile[(family * 3 + 2) % defenseProfile.length]!;
+  const veteran = .9 + ((family * 7 + step * 3 + wave) % 5) * .05;
+  const endurance = boss ? 1 : 1 + Math.min(.30, Math.max(0, wave - 3) * .025);
   const openingBoost = step <= 2 ? 0 : Math.max(0, 1 - (wave - 1) / 8) * (guard ? 0.22 : swift ? 0 : 0.14);
   return {
     name: boss ? bossName : arrival?.name ?? (wave === 1 && step < 12 ? name : ASPECTS[(wave + Math.floor(step / 8)) % 8] + ' ' + name),
-    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale),
+    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale * endurance),
     atk: (boss ? (38 + (wave % 4) * 3) * (wave < 5 ? 1 : wave < 9 ? 0.9 : 0.8) : (first ? 6.5 : 13.3 + 7.5 * position) * (swift ? 0.83 : 1)) * scale ** 1.05,
-    def: (boss ? 13 : guard ? 10 : 4) * scale ** 0.78,
-    res: (boss ? 12 : kind === 'hex' ? 12 : 4) * scale ** 0.78,
+    def: (boss ? 13 * (.85 + (wave % 5) * .075) : (guard ? 12 : kind === 'hex' ? 3 : 6) * armorFactor * veteran) * scale ** .78,
+    res: (boss ? 12 * (1.15 - (wave % 5) * .075) : (kind === 'hex' ? 14 : guard ? 4 : 8) * magicFactor * veteran) * scale ** .78,
     spd: (boss ? 1.14 + (wave % 5) * 0.13 : first ? 0.61 : swift ? 1.61 : guard ? 0.79 : 1.03) * (1 + (wave - 1) * 0.017),
     arcane: boss ? wave % 3 !== 1 : kind === 'hex',
     boss, xp: Math.round((boss ? 155 : 13 + 14 * position + (elite ? 14 : 0)) * scale ** 0.96),

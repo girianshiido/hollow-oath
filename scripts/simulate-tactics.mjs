@@ -1,8 +1,10 @@
 import {HERO_IDS,GEAR_SLOTS,gearId,SPELL_IDS,spellCost} from '../src/content.ts';
-import {Battle,newRun,stats,activeSeal,enemyAffinity,knownRank,buyGear,equipGear,buySpell,resumeWave} from '../src/engine.ts';
+import {Battle,newRun,stats,activeSeal,enemyAffinity,knownRank,buyGear,equipGear,buySpell,resumeWave,weaponRank} from '../src/engine.ts';
 import {decode,serialize} from '../src/saves.ts';
 for(const hero of HERO_IDS){
- const r=newRun(hero),b=new Battle(r,()=>{},()=>.5);let elapsed=0,guard=0,maxWave=1;
+ let seed=20261107+HERO_IDS.indexOf(hero);
+ const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+ const r=newRun(hero),b=new Battle(r,()=>{},random);let elapsed=0,guard=0,maxWave=1, encounterTime=0, encounterKey="";
  while(r.phase!=='victory'&&elapsed<180000&&r.deaths<1000){
   if(r.phase==='fallen'){
    // Recovery camp purchases the highest affordable gear and learned ranks.
@@ -10,9 +12,14 @@ for(const hero of HERO_IDS){
    for(const id of ['mend','aegis','ember','rime','storm'])while(buySpell(r,id)){}
    resumeWave(r);b.refresh();
   }
+  const key=r.wave+':'+r.step+':'+r.deaths;
+  if(key!==encounterKey){encounterKey=key;encounterTime=0;}
+  encounterTime+=.1;
   if(r.phase==='fight'){
    const seal=activeSeal(r,b.foe),weak=enemyAffinity(r,b.foe)?.weak;
    let action=seal??(r.hp<stats(r).hp*.6?'mend':r.intent&&r.ward===0&&b.foe.boss?'aegis':weak??'steel');
+   // Stop spending healing MP on a losing equipment mismatch; fall and re-equip.
+   if(encounterTime>35&&weaponRank(r)<r.wave)action='steel';
    if(action!=='steel'&&knownRank(r,action)&&r.mp>=spellCost(action,knownRank(r,action))){r.spell=action;r.mode='magic'}else r.mode='steel';
   }
   b.tick(.1);elapsed+=.1;

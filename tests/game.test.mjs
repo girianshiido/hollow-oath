@@ -61,6 +61,7 @@ test('A Briar Seal stops even extremely strong steel and breaks with Ember Bolt'
 });
 test('Every seal of the final boss blocks damage at its own threshold', () => {
   const r = at(32, 32, 1000);
+  const weapon = {slot:'weapon',tier:32,relic:false};r.inventory.push(weapon);equipGear(r,weapon,'weapon');
   const battle = new Battle(r, () => {});
   for (const seal of ['steel', 'ember', 'rime', 'storm', 'steel']) {
     assert.equal(activeSeal(r, battle.foe), seal);
@@ -211,9 +212,10 @@ test('Every class, rank, slot and relic has a distinct equipment name', () => {
 test('Affinities modify damage, and campaign immunities never conflict with a required seal', () => {
   function strike(trait) {
     const run = at(3, 1, 15);
+    const weapon={slot:'weapon',tier:3,relic:false};run.inventory.push(weapon);equipGear(run,weapon,'weapon');
     run.mode = 'magic';
     const hits = [];
-    const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event); });
+    const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event); },()=>.5);
     battle.foe.hp = run.foeHp = 2000;
     battle.foe.affinity = trait;
     battle.tick(1.1);
@@ -356,6 +358,7 @@ test('Defeats reset consecutive streaks while preserving records and clean-wave 
 
 test('Active time excludes defeat screens and freezes after the first campaign clear', () => {
   const run = at(32, 32, 1000);
+  const weapon = {slot:'weapon',tier:32,relic:false};run.inventory.push(weapon);equipGear(run,weapon,'weapon');
   const battle = new Battle(run, () => {});
   for (const seal of ['steel', 'ember', 'rime', 'storm', 'steel']) {
     run.mode = seal === 'steel' ? 'steel' : 'magic';
@@ -427,7 +430,7 @@ test('Gear-free and spell-free waves track the full attempt and reset on a retry
   equipGear(run, gear, 'weapon');
   equipGear(run, undefined, 'weapon');
   const battle = new Battle(run, () => {});
-  battle.tick(1);
+  for(let i=0;i<100&&run.phase==='fight';i++)battle.tick(.1);
   assert.equal(run.phase, 'clear');
   assert.equal(run.chronicle.clearedGearFree, false);
   assert.equal(run.chronicle.clearedSpellFree, true);
@@ -479,7 +482,7 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   assert.equal(migrated.run.chronicle.hits,440);
   assert.equal(migrated.run.chronicle.activeSeconds,1200);
   const battle = new Battle(migrated.run, () => {});
-  battle.tick(1);
+  for(let i=0;i<100&&migrated.run.phase==='fight';i++)battle.tick(.1);
   assert.equal(migrated.run.phase, 'clear');
   assert.equal(migrated.run.chronicle.clearedGearFree, false);
   assert.equal(migrated.run.chronicle.clearedSpellFree, false);
@@ -538,7 +541,7 @@ test('Legacy save identity ignores export dates and object key order', () => {
 test('A killing blow reports full damage while HP stops at zero', () => {
   const run = at(1, 1);
   const hits = [];
-  const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event.damage); });
+  const battle = new Battle(run, event => { if (event.type === 'hit') hits.push(event.damage); },()=>.5);
   battle.player.atk = 90;
   battle.player.spd = 1;
   battle.foe.def = 0;
