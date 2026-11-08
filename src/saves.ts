@@ -1,6 +1,7 @@
 import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle, profileFromRun, TOTAL_KEYS, type AchievementProfile } from './achievements.ts';
 import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, ENEMY_MOVES, aegisProtection, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
+import {newJourney, validJourney} from './journey.ts';
 
 const PREFIX = 'hollow-oath.slot.';
 const HISTORY = 'hollow-oath.chronicle.';
@@ -61,6 +62,8 @@ export function decode(text: string): Save | null {
     r.name = name || HEROES[r.hero].defaultName;
     if (r.journalRead === undefined) r.journalRead = 0;
     if (!numeric(r.journalRead, 0, 255, true)) return null;
+    if (r.journey === undefined) r.journey = newJourney((r.wave - 1) * 32 + r.step);
+    if (!validJourney(r)) return null;
     if (raw.version === 1) {
       if (SPELLS[r.spell].price) return null;
       const cleared = r.phase === 'clear' || r.phase === 'victory' ? r.wave : r.wave - 1;

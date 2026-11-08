@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
 import { activeSeal, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats } from '../src/engine.ts';
 import { achievementHistory, decode, deleteSlot, listSlots, serialize, writeSlot } from '../src/saves.ts';
+import {resolveRoad} from '../src/journey.ts';
 
 function at(wave, step, level = 15) {
   const r = newRun('vanguard');
@@ -442,6 +443,7 @@ test('Gear-free and spell-free waves track the full attempt and reset on a retry
   assert.ok(run.chronicle.gearFreeAttempt);
   let ticks = 0;
   while (run.phase === 'fight' && ticks++ < 1000) {
+    if (run.journey.pending !== null) resolveRoad(run,2);
     const seal = activeSeal(run,battle.foe);
     run.mode = seal && seal !== 'steel' ? 'magic' : 'steel';
     if (seal && seal !== 'steel') run.spell = seal;

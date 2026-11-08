@@ -1,4 +1,5 @@
 import { newChronicle, type Chronicle } from './achievements.ts';
+import {newJourney, offerRoad, type Journey} from './journey.ts';
 import {
   encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, spellRankCap, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
   type Enemy, type EnemyMove, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
@@ -9,6 +10,7 @@ export interface Run {
   runId: string;
   name: string;
   journalRead: number;
+  journey: Journey;
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
@@ -91,7 +93,7 @@ export function newRunId(): string {
 }
 export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): Run {
   const run: Run = {
-    runId: newRunId(), journalRead: 0, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
+    runId: newRunId(), journalRead: 0, journey: newJourney(), name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
     chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
@@ -205,7 +207,7 @@ export class Battle {
   }
   tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
-    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null) return;
     const clock = run.chronicle;
     const timeScale = Number.isFinite(realSeconds) && realSeconds > 0 ? realSeconds / seconds : 1;
     const track = (elapsed: number) => {
@@ -225,7 +227,7 @@ export class Battle {
     if (run.phase !== 'fight') return;
     const epsilon = 1e-8;
     // Schedule both clocks on the same time axis. The enemy acts first on an exact tie.
-    while (remaining > epsilon && run.phase === 'fight') {
+    while (remaining > epsilon && run.phase === 'fight' && run.journey.pending === null) {
       if (run.wait > epsilon) {
         const elapsed = Math.min(run.wait, remaining);
         run.wait -= elapsed;
@@ -243,10 +245,11 @@ export class Battle {
         }
         continue;
       }
-      const playerAt = Math.max(0, (1 - run.playerGauge) / this.player.spd);
+      const playerSpeed = this.player.spd * (run.journey.boon?.kind === 'haste' ? 1.12 : 1);
+      const playerAt = Math.max(0, (1 - run.playerGauge) / playerSpeed);
       const enemyAt = run.intent ? run.castWait : Math.max(0, (1 - run.enemyGauge) / this.foe.spd);
       const elapsed = Math.min(remaining, playerAt, enemyAt);
-      run.playerGauge += elapsed * this.player.spd;
+      run.playerGauge += elapsed * playerSpeed;
       if (run.intent) run.castWait = Math.max(0, run.castWait - elapsed);
       else run.enemyGauge += elapsed * this.foe.spd;
       remaining -= elapsed;
@@ -292,7 +295,7 @@ export class Battle {
       return;
     }
     const arcane = !['steel', 'heavy'].includes(move);
-    const raw = this.rollDamage(impact(this.foe.atk * (move === 'heavy' ? 1.35 : move === 'drain' ? .95 : move === 'rime' ? 1 : arcane ? 1.12 : 1), arcane ? this.player.res * (move === 'storm' ? .65 : 1) : this.player.def));
+    const raw = this.rollDamage(impact(this.foe.atk * (move === 'heavy' ? 1.35 : move === 'drain' ? .95 : move === 'rime' ? 1 : arcane ? 1.12 : 1), arcane ? this.player.res * (move === 'storm' ? .65 : 1) : this.player.def) * (run.journey.boon?.kind === 'guard' ? .88 : 1));
     const protection = run.ward > 0 ? aegisProtection(run.wardRank).reduction : 0;
     const reduced = Math.max(1, Math.round(raw * (1 - protection)));
     if (run.ward > 0) run.ward--;
@@ -369,7 +372,8 @@ export class Battle {
     const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
       trait?.weak === strike ? 'weak' : undefined;
     if (affinity === 'immune') run.chronicle.immuneHits++;
-    const damage = affinity === 'immune' ? 0 : this.rollDamage(baseDamage * wavePower(run) *
+    const roadPower = run.journey.boon?.kind === (strike === 'steel' ? 'steel' : 'magic') ? 1.15 : 1;
+    const damage = affinity === 'immune' ? 0 : this.rollDamage(baseDamage * wavePower(run) * roadPower *
       (affinity === 'resisted' ? .30 : affinity === 'weak' ? 1.5 : 1));
     if (strike === 'rime' && damage > 0) {
       const slow = Math.min(.32, .23 + (rank - 1) * .01);
@@ -397,6 +401,7 @@ export class Battle {
     run.gold += foe.gold;
     run.xp += foe.xp;
     run.kills++;
+    if (run.journey.boon && --run.journey.boon.left === 0) run.journey.boon = null;
     const clock = run.chronicle;
     clock.streak++;
     clock.bestStreak = Math.max(clock.bestStreak, clock.streak);
@@ -440,6 +445,7 @@ export class Battle {
       run.essence += essence;
       run.essenceClaims.push((run.wave - 1) * ENCOUNTER_COUNT + run.step);
     }
+    offerRoad(run);
     this.send({type: 'kill', xp: foe.xp, gold: foe.gold, essence, loot});
   }
 }

@@ -378,6 +378,15 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .journal-notice { position: fixed; z-index: 9; bottom: calc(150px + env(safe-area-inset-bottom)); left: 50%; transform: translate(-50%, 8px); opacity: 0; pointer-events: none; display: flex; align-items: center; gap: 10px; width: min(290px, calc(100% - 24px)); border: 1px solid var(--gold); background: #101c16f2; color: var(--gold); padding: 5px; text-align: left; transition: opacity .2s, transform .2s; }
 .journal-notice.shown { opacity: 1; transform: translate(-50%,0); pointer-events: auto; }
 .journal-notice[hidden] { display: none; }
+.road-story { display: grid; gap: 14px; margin: 0 0 18px; font: 17px/1.65 var(--serif); }
+.sheet { overflow-anchor: none; }
+.road-image { width: 100%; aspect-ratio: 3/2; object-fit: cover; border: 1px solid var(--line); }
+.road-arrival { border-left: 2px solid var(--gold); padding: 10px 12px; background: #c0a36b0a; color: #ddc795; font-size: 15px; }
+.road-choices { display: grid; gap: 10px; }
+.road-choice { display: grid; gap: 6px; width: 100%; text-align: left; white-space: normal; padding: 13px; }
+.road-choice strong { font: 18px/1.2 var(--serif); }
+.road-choice small { font-size: 11px; line-height: 1.5; color: var(--muted); }
+.ward-status { white-space: pre-line; }
 .journal-notice img { width: 64px; height: 43px; object-fit: cover; }
 .journal-notice span { font-size: 12px; font-weight: bold; }
 .journal-notice small { display: block; color: var(--paper); font: 13px/1.3 var(--serif); margin-top: 3px; }

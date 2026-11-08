@@ -3,6 +3,7 @@ import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound,
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import { CHAPTERS, journalArt, journalUnlocked, journalUnread, journalVoice } from './journal.ts';
+import {BOON_TEXT, ROAD_WAVES, roadArrival, roadDetail, roadFee, roadScene, resolveRoad} from './journey.ts';
 import { installGameGestures } from './gestures.ts';
 import { installInstructions, renderInstall, requestInstall } from './install.ts';
 import {
@@ -72,18 +73,21 @@ function mount(name: string, body: string): void {
   app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div><button id="journal-notice" hidden class="journal-notice" data-action="journal-new" aria-label="Read the new Chronicle entry"></button>';
   const dialog = find<HTMLDialogElement>('sheet');
   dialog.addEventListener('close', () => {
+    if (dialog.open) return;
     dialogKind = '';
     lastFrame = 0;
     if (dialogOpener?.isConnected) dialogOpener.focus({preventScroll: true});
     dialogOpener = null;
   });
   dialog.addEventListener('cancel', event => {
-    if (!['portrait', 'rename', 'journal-art', 'journal-entry', 'journal-list'].includes(dialogKind)) return;
+    if (dialogKind === 'road-choice') { event.preventDefault(); return; }
+    if (!['portrait', 'rename', 'journal-art', 'journal-entry', 'journal-list', 'road-memory', 'road-log'].includes(dialogKind)) return;
     event.preventDefault();
     close();
   });
   dialog.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !dialogKind.startsWith('journal-')) return;
+    if (event.key === 'Escape' && dialogKind === 'road-choice') {event.preventDefault(); event.stopPropagation(); return;}
+    if (event.key !== 'Escape' || !(dialogKind.startsWith('journal-') || dialogKind.startsWith('road-'))) return;
     event.preventDefault();
     event.stopPropagation();
     close();
@@ -192,7 +196,7 @@ function slotScreen(): void {
 
 function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLOW OATH'): void {
   const dialog = find<HTMLDialogElement>('sheet');
-  const journalNavigation = kind.startsWith('journal-') || dialogKind.startsWith('journal-');
+  const journalNavigation = kind.startsWith('journal-') || dialogKind.startsWith('journal-') || kind.startsWith('road-') || dialogKind.startsWith('road-');
   dialogKind = kind;
   dialog.classList.toggle('journal-expanded', kind === 'journal-art');
   dialog.innerHTML = `<div class="sheet-inner"><header><div><p class="kicker">${kicker}</p><h2 id="sheet-title">${heading}</h2></div>
@@ -209,6 +213,9 @@ function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLO
   }
 }
 function close(): void {
+  if (dialogKind === 'road-choice') { toast('Choose a path, or continue without an offering.'); return; }
+  if (dialogKind === 'road-memory') { roadLog(); return; }
+  if (dialogKind === 'road-log') { options(); return; }
   if (dialogKind === 'journal-art') { journalEntry(journalIndex); return; }
   if (dialogKind === 'journal-entry') { journalView(); return; }
   if (dialogKind === 'journal-list' && journalFromOptions) { options(); return; }
@@ -416,7 +423,7 @@ function updateHud(): void {
     find('cost-' + id).textContent = rank ? spellCost(id, rank) + ' MP' : r.level < SPELLS[id].level ? 'LV ' + SPELLS[id].level : 'Learn';
   }
   const protection = aegisProtection(r.wardRank);
-  find('aegis-status').textContent = r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '';
+  find('aegis-status').textContent = [r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '',r.journey.boon ? BOON_TEXT[r.journey.boon.kind] + ' · ' + r.journey.boon.left + ' victories' : ''].filter(Boolean).join('\n');
   const intent = find('enemy-intent'), next = r.intent ?? nextEnemyMove(r, foe);
   intent.hidden = r.phase !== 'fight';
   intent.textContent = r.intent ? ENEMY_MOVES[next].warning : 'Next: ' + ENEMY_MOVES[next].name;
@@ -684,6 +691,28 @@ function gearView(): void {
 let journalIndex = 0;
 let journalFromOptions = false;
 let journalTimer = 0;
+function roadView(): void {
+  if (!battle || current().journey.pending === null) return;
+  const r=current(), index=r.journey.pending!, scene=roadScene(r,index), arrival=roadArrival(r,index);
+  openDialog('road-choice',scene.title,`<article class="road-story"><img class="road-image" src="${art('road-'+scene.art)}" alt="${scene.title}"><p>${scene.text}</p>${arrival?'<p class="road-arrival">'+escapeHtml(arrival.text)+' This gift arrives when you choose your path.</p>':''}</article><div class="road-choices">${scene.choices.map((choice,i)=>`<button class="secondary road-choice" data-action="road-choose" data-id="${i}" ${choice.cost==='gold' && r.gold+(arrival?.gold??0)<roadFee(index)?'disabled':''}><strong>${choice.label}</strong><small>${roadDetail(index,choice)}</small></button>`).join('')}</div><p class="sheet-foot">Combat is paused · ◆ ${fmt(r.gold)} gold · HP ${fmt(Math.ceil(r.hp))} · MP ${fmt(Math.floor(r.mp))}</p><button class="text-action" data-action="exit">Save &amp; return to title</button>`,'A MOMENT ON THE ROAD · WAVE '+r.wave);
+  find<HTMLDialogElement>('sheet').querySelector<HTMLButtonElement>('header button')!.hidden=true;
+  find('sheet').scrollTop=0;
+  find('sheet').querySelector<HTMLButtonElement>('.road-choice:not([disabled])')?.focus({preventScroll:true});
+}
+function roadRecord(index: number, memory=false): void {
+  const r=current(), record=r.journey.choices.find(c=>c.slot===index);
+  if(!record)return;
+  const scene=roadScene(r,index), choice=scene.choices[record.option]!, arrival=roadArrival(r,index);
+  openDialog(memory?'road-memory':'road-result',scene.title,`<article class="road-story"><img class="road-image" src="${art('road-'+scene.art)}" alt="${scene.title}"><p class="kicker">${choice.label}</p><p>${choice.result}</p><p class="sheet-foot">${roadDetail(index,choice)}</p>${arrival?'<p class="road-arrival">'+escapeHtml(arrival.text)+'</p>':''}</article><button class="primary wide" data-action="${memory?'road-log':'close'}">${memory?'Back to encounters':'Continue the journey'} ${icon('next')}</button>`,'THE ROAD REMEMBERS · WAVE '+ROAD_WAVES[index]);
+  find('sheet').scrollTop=0;
+  find('sheet').querySelector<HTMLButtonElement>('header button')?.focus({preventScroll:true});
+  requestAnimationFrame(() => { if (dialogKind === (memory?'road-memory':'road-result')) find('sheet').scrollTop=0; });
+}
+function roadLog(): void {
+  const r=current();
+  openDialog('road-log','Roadside encounters',`<p class="sheet-foot">The people and places you stopped for. Your choices are remembered for this adventure.</p><div class="journal-list">${r.journey.choices.map(c=>{const scene=roadScene(r,c.slot);return `<button class="journal-card" data-action="road-memory" data-id="${c.slot}"><img src="${art('road-'+scene.art)}" alt="" loading="lazy"><span><small>WAVE ${ROAD_WAVES[c.slot]}</small><strong>${scene.title}</strong><em>${scene.choices[c.option]!.label}</em></span></button>`;}).join('')||'<p class="sheet-foot">No encounters recorded yet. Keep following the road.</p>'}</div><button class="secondary wide" data-action="options">Back to options ${icon('back')}</button>`,'YOUR JOURNEY');
+  find('sheet').scrollTop=0;
+}
 function notifyJournal(wave: number): void {
   const index = CHAPTERS.findIndex(c => c.wave === wave);
   if (index < 0) return;
@@ -822,6 +851,7 @@ function options(): void {
     <button class="secondary wide" data-action="install"><span>Install game</span>${icon('install')}</button>
     <button class="secondary wide" data-action="achievements">Achievements ${icon('mark')}</button>
     <button class="secondary wide" data-action="journal">Chronicle${journalUnread(current()) ? ' · ' + journalUnread(current()) + ' unread' : ''} ${icon('book')}</button>
+    <button class="secondary wide" data-action="road-log">Roadside encounters · ${current().journey.choices.length} ${icon('book')}</button>
     <button class="secondary wide" data-action="help">How to play ${icon('book')}</button>
     <button class="secondary wide" id="update-game" data-action="update" hidden><span>Check for updates</span>${icon('next')}</button>
     <p id="update-status" class="update-status" role="status"></p>
@@ -1008,6 +1038,13 @@ app.addEventListener('click', event => {
     case 'journal-new': journalFromOptions = false; journalEntry(journalIndex); break;
     case 'journal-entry': journalEntry(Number(id)); break;
     case 'journal-art': journalZoom(); break;
+    case 'road-log': roadLog(); break;
+    case 'road-memory': roadRecord(Number(id),true); break;
+    case 'road-choose': {
+      const index=current().journey.pending;
+      if(index!==null && resolveRoad(current(),Number(id))) {battle!.refresh(); save(); updateHud(); roadRecord(index);}
+      break;
+    }
     case 'achievements': achievements(); break;
     case 'visit-shop':
     case 'gear':
@@ -1088,10 +1125,12 @@ window.addEventListener('pagehide', () => { if (battle) save(); });
 function frame(now: number): void {
   requestAnimationFrame(frame);
   if (screen !== 'arena' || !battle || dialogKind || document.hidden) { lastFrame = 0; return; }
+  if (battle.run.journey.pending !== null) {lastFrame=0; roadView(); return;}
   if (lastFrame && (battle.run.phase === 'fight' || battle.run.phase === 'clear')) {
     const elapsed = (now - lastFrame) / 1000;
     battle.tick(Math.min(elapsed, 0.15), elapsed);
     dirty = true;
+    if (battle.run.journey.pending !== null) {lastFrame=0; roadView(); return;}
   }
   lastFrame = now;
   if (recordsDirty) notifyAchievements();
