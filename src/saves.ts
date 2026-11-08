@@ -7,7 +7,7 @@ import {chapterBoss} from './chapters.ts';
 const PREFIX = 'hollow-oath.slot.';
 const HISTORY = 'hollow-oath.chronicle.';
 const validRunId = (id: unknown): id is string => typeof id === 'string' && /^(?:run-[a-z0-9-]{7,32}|legacy-[a-z0-9]{2,14})$/.test(id);
-export interface Save { version: 8; updated: number; run: Run }
+export interface Save { version: 9; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
@@ -27,8 +27,8 @@ function legacyRunId(run: Run): string {
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4, 5, 6, 7, 8].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 8, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 9, updated: raw.updated, run: raw.run};
     const r = data.run;
     let retiredMastery = 0;
     if (r && raw.version < 6) r.runId = legacyRunId(r);
@@ -89,7 +89,7 @@ export function decode(text: string): Save | null {
       r.spellRanks = {};
       r.ward = 0;
     }
-    if (!numeric(r.essence, 0, WAVE_COUNT * 6, true) || !Array.isArray(r.essenceClaims) ||
+    if (!numeric(r.essence, 0, Number.MAX_SAFE_INTEGER, true) || !Array.isArray(r.essenceClaims) ||
       r.essenceClaims.length > WAVE_COUNT * 4 || !r.spellRanks || typeof r.spellRanks !== 'object' ||
       Array.isArray(r.spellRanks) || !numeric(r.ward, 0, 8, true) || !numeric(r.wardRank, 1, 10, true) ||
       !numeric(r.enemyTurns, 0, Number.MAX_SAFE_INTEGER, true) || !numeric(r.enemyHeals, 0, 2, true) ||
@@ -105,7 +105,11 @@ export function decode(text: string): Save | null {
       claims.add(id);
       earned += source.essence;
     }
-    if (r.essence > earned) return null;
+    if(raw.version<9) {
+      if(r.essence>earned)return null;
+      r.essenceEarned=earned;
+    }
+    if(!numeric(r.essenceEarned,earned,Number.MAX_SAFE_INTEGER,true) || r.essence>r.essenceEarned)return null;
     for (const [id, rank] of Object.entries(r.spellRanks)) {
       if (!Object.hasOwn(SPELLS, id) || !numeric(rank, 1, MAX_SPELL_RANK, true) ||
         SPELLS[id as keyof typeof SPELLS].level > r.level) return null;
@@ -242,5 +246,5 @@ export function deleteSlot(id: string): boolean {
   catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 8, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 9, updated: Date.now(), run} satisfies Save);
 }

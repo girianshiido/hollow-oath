@@ -1,11 +1,13 @@
 // Fixed, current-rank equipment and comparable levels; no menus or reaction delay.
-import {HERO_IDS,GEAR_SLOTS,gearId,encounter,spellRankCap,spellCost} from '../src/content.ts';
+import {HERO_IDS,GEAR_SLOTS,gearId,encounter,spellUpgradeCost,spellCost} from '../src/content.ts';
 import {Battle,newRun,stats,activeSeal,enemyAffinity,chapterCounter,knownRank} from '../src/engine.ts';
 import {decode,serialize} from '../src/saves.ts';
 export function chapterTrial(hero,wave,policy='tactical') {
  const r=newRun(hero);Object.assign(r,{wave,step:32,level:Math.round(wave*2.6+7),wait:0,chapterIntro:false});
  r.inventory=GEAR_SLOTS.map(slot=>({slot,tier:wave,relic:false}));r.equipped=Object.fromEntries(r.inventory.map(g=>[g.slot,gearId(g)]));r.chronicle.gearFreeAttempt=false;
- r.spellRanks=Object.fromEntries(['ember','mend','rime','storm','aegis'].map(id=>[id,spellRankCap(wave)]));
+ // Evenly spend the first-clear Essence budget; this is a fixture, not a wave gate.
+ let rank=1,budget=Math.floor((wave*6-5)/5);while(rank<10&&budget>=spellUpgradeCost(rank)){budget-=spellUpgradeCost(rank);rank++;}
+ r.spellRanks=Object.fromEntries(['ember','mend','rime','storm','aegis'].map(id=>[id,rank]));
  r.hp=stats(r).hp;r.mp=stats(r).mp;r.foeHp=encounter(wave,32).hp;
  let interrupted=0,incoming=0,changes=0,t=0;
  const b=new Battle(r,e=>{if(e.type==='interrupt')interrupted++;if(e.type==='hurt')incoming++;if(e.type==='chapter-phase')changes++;},()=>.5);

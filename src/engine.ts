@@ -2,7 +2,7 @@ import { newChronicle, type Chronicle } from './achievements.ts';
 import {newJourney, offerRoad, type Journey} from './journey.ts';
 import {CHAPTER_COUNTER,chapterInfo} from './chapters.ts';
 import {
-  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, spellRankCap, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
+  encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, MAX_SPELL_RANK, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
   type Enemy, type EnemyMove, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
 } from './content.ts';
 
@@ -17,7 +17,7 @@ export interface Run {
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
   chronicle: Chronicle;
-  essence: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number; wardRank: number;
+  essence: number; essenceEarned: number; essenceClaims: number[]; spellRanks: Partial<Record<SpellId, number>>; ward: number; wardRank: number;
   enemyTurns: number; enemyHeals: number; enemyRecovery: number; intent: EnemyMove | null; castWait: number; castDelay: number;
   phase: Phase; wait: number; inventory: Gear[]; equipped: Partial<Record<GearSlot, string>>;
 }
@@ -33,7 +33,7 @@ export type BattleEvent =
   | {type: 'heal'; amount: number}
   | {type: 'ward'; amount: number}
   | {type: 'empty' | 'fallen' | 'enter' | 'armed'}
-  | {type: 'kill'; xp: number; gold: number; essence: number; loot?: Gear}
+  | {type: 'kill'; xp: number; gold: number; essence: number; firstClear: boolean; loot?: Gear}
   | {type: 'level'; level: number; spells: SpellId[]};
 
 export function stats(run: Run): Stats {
@@ -103,7 +103,7 @@ export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): R
     runId: newRunId(), journalRead: 0, journey: newJourney(), chapterIntro: false, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
-    chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
+    chronicle: newChronicle(), essence: 0, essenceEarned: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
     phase: 'fight', wait: 0, inventory: [], equipped: {}
   };
   openEncounter(run);
@@ -148,7 +148,7 @@ export function preparedSpellCost(run: Run): number {
 }
 export function workshopPrice(run: Run, id: SpellId): number | undefined {
   const rank = knownRank(run, id);
-  if (run.level < SPELLS[id].level || rank >= Math.max(spellRankCap(run.wave), run.spellRanks[id] ?? 0)) return undefined;
+  if (run.level < SPELLS[id].level || rank >= MAX_SPELL_RANK) return undefined;
   return rank === 0 ? SPELLS[id].price : spellUpgradeCost(rank);
 }
 export function buySpell(run: Run, id: SpellId): boolean {
@@ -160,15 +160,11 @@ export function buySpell(run: Run, id: SpellId): boolean {
 }
 
 export function availableEssence(run: Run, foe: Enemy): number {
-  const claim = (run.wave - 1) * ENCOUNTER_COUNT + run.step;
-  return run.essenceClaims.includes(claim) ? 0 : foe.essence;
+  return foe.essence;
 }
 
 export function purchasePrice(run: Run, gear: Gear): number {
-  if (gear.slot !== 'weapon' || gear.relic) return gearPrice(gear);
-  const prior = run.inventory.filter(item => item.slot === 'weapon' && !item.relic && item.tier < gear.tier).sort((a, b) => b.tier - a.tier)[0];
-  const higherOwned = run.inventory.some(item => item.slot === 'weapon' && !item.relic && item.tier >= gear.tier);
-  return gearPrice(gear) - (prior && !higherOwned ? gearPrice(prior) : 0);
+  return gearPrice(gear);
 }
 export function buyGear(run: Run, gear: Gear): boolean {
   if (!canShop(run) || gear.relic || gear.tier < 1 || gear.tier > run.wave || !Number.isInteger(gear.tier) ||
@@ -465,11 +461,14 @@ export class Battle {
     }
     else run.wait = 0.72;
     const essence = availableEssence(run, foe);
+    const claim=(run.wave-1)*ENCOUNTER_COUNT+run.step;
+    const firstClear=essence>0 && !run.essenceClaims.includes(claim);
     if (essence) {
-      run.essence += essence;
-      run.essenceClaims.push((run.wave - 1) * ENCOUNTER_COUNT + run.step);
+      run.essence = Math.min(Number.MAX_SAFE_INTEGER,run.essence+essence);
+      run.essenceEarned = Math.min(Number.MAX_SAFE_INTEGER,run.essenceEarned+essence);
+      if(firstClear)run.essenceClaims.push(claim);
     }
     offerRoad(run);
-    this.send({type: 'kill', xp: foe.xp, gold: foe.gold, essence, loot});
+    this.send({type: 'kill', xp: foe.xp, gold: foe.gold, essence, firstClear, loot});
   }
 }

@@ -30,7 +30,7 @@ test('A phase transition changes technique and weakness, clears the old preparat
 });
 test('Version-seven chapter saves retain boss HP percentage, resources and earned progress through migration',()=>{
  for(let wave=4;wave<=32;wave+=4){const r=setup(wave),prior=Math.round(104*(1+.44*(wave-1)**1.32));r.foeHp=Math.floor(prior*.57);r.broken=1;r.enemyRecovery=Math.floor(prior*.03);r.intent='storm';r.castWait=1.2;r.gold=991;r.xp=21;delete r.chapterIntro;
-  const migrated=decode(JSON.stringify({version:7,updated:1234,run:r}));assert.ok(migrated);assert.equal(migrated.version,8);assert.equal(migrated.run.runId,r.runId);assert.equal(migrated.run.gold,991);assert.equal(migrated.run.xp,21);assert.equal(migrated.run.castWait,1.2);assert.equal(migrated.run.chapterIntro,false);assert.ok(Math.abs(migrated.run.foeHp/encounter(wave,32).hp-r.foeHp/prior)<.001);assert.deepEqual(migrated.run.journey,r.journey);assert.deepEqual(decode(serialize(migrated.run)).run,migrated.run);
+  const migrated=decode(JSON.stringify({version:7,updated:1234,run:r}));assert.ok(migrated);assert.equal(migrated.version,9);assert.equal(migrated.run.runId,r.runId);assert.equal(migrated.run.gold,991);assert.equal(migrated.run.xp,21);assert.equal(migrated.run.castWait,1.2);assert.equal(migrated.run.chapterIntro,false);assert.ok(Math.abs(migrated.run.foeHp/encounter(wave,32).hp-r.foeHp/prior)<.001);assert.deepEqual(migrated.run.journey,r.journey);assert.deepEqual(decode(serialize(migrated.run)).run,migrated.run);
  }
 });
 test('Chapter-intro and long-cast save state is bounded and only valid at a full-health chapter boss',()=>{

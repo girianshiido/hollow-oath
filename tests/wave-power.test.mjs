@@ -9,12 +9,14 @@ test('The next wave halves offensive power at unchanged weapon rank for both ste
  const r=setup();assert.equal(wavePower(r),1);r.wave=13;assert.equal(wavePower(r),.5);r.wave=14;assert.equal(wavePower(r),.25);
  const next={slot:'weapon',tier:14,relic:false};r.inventory.push(next);equipGear(r,next,'weapon');assert.equal(wavePower(r),1);assert.equal(weaponRank(r),14);
 });
-test('Weapon upgrade credit charges only the difference and preserves the collection',()=>{
- const r=newRun('vanguard');r.wave=3;r.gold=10000;r.phase='fallen';r.hp=0;
+test('Every class pays the full weapon price even when a lower rank is already owned',()=>{
+ for(const hero of HERO_IDS){
+ const r=newRun(hero);r.wave=3;r.gold=10000;r.phase='fallen';r.hp=0;
  for(let tier=1;tier<=3;tier++){const gear={slot:'weapon',tier,relic:false};assert.ok(buyGear(r,gear));}
- assert.equal(r.inventory.length,3);assert.equal(r.gold,10000-gearPrice({slot:'weapon',tier:3,relic:false}));
+ assert.equal(r.inventory.length,3);assert.equal(r.gold,10000-[1,2,3].reduce((total,tier)=>total+gearPrice({slot:'weapon',tier,relic:false}),0));
  const lower={slot:'weapon',tier:2,relic:false};assert.equal(purchasePrice(r,lower),gearPrice(lower));assert.equal(buyGear(r,lower),false);
- r.wave=4;const g={slot:'weapon',tier:4,relic:false};const price=purchasePrice(r,g);assert.equal(price,gearPrice(g)-gearPrice(r.inventory[2]));r.phase='fight';r.hp=1;assert.equal(buyGear(r,g),false);
+ r.wave=4;const g={slot:'weapon',tier:4,relic:false};assert.equal(purchasePrice(r,g),gearPrice(g));r.phase='fight';r.hp=1;assert.equal(buyGear(r,g),false);
+ }
 });
 test('Repeated strikes vary within ±12% and a killing blow still reports its complete roll',()=>{
  const r=setup('vanguard',1,1),hits=[];const rolls=[0,1,.25,.75,.5];let i=0;

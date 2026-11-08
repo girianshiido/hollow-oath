@@ -62,8 +62,9 @@ export const MAX_SPELL_RANK = 10;
 export const spellCost = (id: SpellId, rank: number) => SPELLS[id].cost + Math.min(2, Math.max(0, rank - 1)) * 2 + Math.max(0, rank - 3);
 export const spellBoost = (rank: number) => 1 + Math.min(2, rank - 1) * .24 + Math.max(0, rank - 3) * .09;
 export const aegisProtection = (rank: number) => ({reduction: .30 + (Math.max(1, rank) - 1) / 9 * .15, charges: 5 + Math.floor((Math.max(1, rank) - 1) / 3)});
-export const spellRankCap = (wave: number) => Math.min(MAX_SPELL_RANK, 1 + Math.floor((wave - 1) * 9 / 31));
-export const spellUpgradeCost = (rank: number) => 2 + Math.floor((rank - 1) / 3);
+// The price is for advancing from this learned level to the next one.
+export const SPELL_UPGRADE_PRICES = [4,5,6,8,10,13,16,20,25] as const;
+export const spellUpgradeCost = (rank: number): number | undefined => Number.isInteger(rank) ? SPELL_UPGRADE_PRICES[rank-1] : undefined;
 export type EnemyMove = 'steel' | 'ember' | 'rime' | 'storm' | 'heavy' | 'mend' | 'drain';
 export const ENEMY_MOVES: Record<EnemyMove, {name: string; warning: string; color: string}> = {
   steel: {name: 'Strike', warning: 'Readying steel', color: '#e6c28a'},

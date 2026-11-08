@@ -234,7 +234,7 @@ test('Affinities modify damage, and campaign immunities never conflict with a re
   }
 });
 
-test('Essence is awarded once per marked encounter, even after retrying the same wave', () => {
+test('Repeated marked encounters award more Essence while first-clear records stay unique', () => {
   const run = at(1, 7, 35);
   const finish = () => {
     run.foeHp = 1;
@@ -246,13 +246,15 @@ test('Essence is awarded once per marked encounter, even after retrying the same
   assert.deepEqual(run.essenceClaims, [7]);
   run.wait = 0;
   finish();
-  assert.equal(run.essence, 1);
+  assert.equal(run.essence, 2);
+  assert.equal(run.essenceEarned,2);
+  assert.deepEqual(run.essenceClaims,[7]);
   assert.equal(run.kills, 2);
 });
 
 test('Upgrades immediately increase the prepared spell cost', () => {
   const run = at(5, 1, 12);
-  run.essence = 15;
+  run.essence = 9;
   assert.equal(buySpell(run, 'aegis'), false);
   run.phase = 'fallen';
   run.hp = 0;
@@ -304,7 +306,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 8);
+  assert.equal(migrated?.version, 9);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -321,7 +323,7 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 8);
+  assert.equal(migrated?.version, 9);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
   migrated.run.mode = 'magic';
@@ -483,7 +485,7 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   const old = { ...run, foeHp:Math.round(104*(1+.44*(run.wave-1)**1.32)), chronicle:{...run.chronicle} };
   for (const key of ['gearFreeAttempt','spellFreeAttempt','clearedGearFree','clearedSpellFree','nearDeathClear','immuneHits']) delete old.chronicle[key];
   const migrated = decode(JSON.stringify({version:4, updated:Date.now(), run:old}));
-  assert.equal(migrated.version,8);
+  assert.equal(migrated.version,9);
   assert.equal(migrated.run.chronicle.hits,440);
   assert.equal(migrated.run.chronicle.activeSeconds,1200);
   const battle = new Battle(migrated.run, () => {});migrated.run.foeHp=1;migrated.run.broken=battle.foe.seals.length;

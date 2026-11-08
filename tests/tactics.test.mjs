@@ -1,18 +1,17 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {aegisProtection, encounter, HERO_IDS, spellRankCap, SPELL_IDS, spellCost, spellUpgradeCost} from '../src/content.ts';
+import {aegisProtection, encounter, HERO_IDS, MAX_SPELL_RANK, SPELL_IDS, spellCost, spellUpgradeCost} from '../src/content.ts';
 import {activeSeal, Battle, buySpell, enemyAffinity, newRun, sealFloor, stats, workshopPrice} from '../src/engine.ts';
 import {profileFromRun} from '../src/achievements.ts';
 import {decode, serialize} from '../src/saves.ts';
 function setup(hero='vanguard',wave=15,step=32){const r=newRun(hero);Object.assign(r,{wave,step,level:40,wait:0,foeHp:encounter(wave,step).hp});r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
-test('Five direct spells progress to ten levels across the whole campaign with affordable Essence totals',()=>{
+test('Magic upgrades have increasing costs and no wave gate, with an earned-Essence budget',()=>{
  assert.deepEqual(SPELL_IDS,['ember','mend','rime','storm','aegis']);
- assert.equal(spellRankCap(1),1);assert.equal(spellRankCap(32),10);
- for(let wave=1;wave<=32;wave++)assert.ok(spellRankCap(wave)<=10);
- const total=Array.from({length:9},(_,i)=>spellUpgradeCost(i+1)).reduce((a,b)=>a+b,0)*5+5;
- assert.ok(total<=192);
- const r=setup();r.phase='fallen';r.hp=0;r.essence=192;
- for(const wave of [1,8,16,32]){r.wave=wave;while(buySpell(r,'ember')){}assert.equal(r.spellRanks.ember??1,spellRankCap(wave));}
- assert.equal(workshopPrice(r,'ember'),undefined);
+ const costs=Array.from({length:MAX_SPELL_RANK-1},(_,i)=>spellUpgradeCost(i+1));
+ assert.ok(costs.every((cost,i)=>cost>0&&(!i||cost>costs[i-1])));
+ const r=setup();r.wave=1;r.phase='fallen';r.hp=0;r.essence=r.essenceEarned=1000;
+ for(const id of SPELL_IDS){while(buySpell(r,id)){}assert.equal(r.spellRanks[id],MAX_SPELL_RANK);assert.equal(workshopPrice(r,id),undefined);}
+ assert.equal(1000-r.essence,costs.reduce((a,b)=>a+b,0)*5+5);
+ assert.ok(costs.reduce((a,b)=>a+b,0)>32*3,'A maximum spell level should require substantial Essence');
  assert.ok(spellCost('ember',10)>spellCost('ember',3));
 });
 test('Aegis carries its cast level through spell changes, spends exactly eight hits at level ten and cannot stack',()=>{
@@ -75,7 +74,7 @@ test('Legacy Verdict purchases are refunded once, counts survive and a partially
  const r=setup('hexweaver',32,32);r.essenceClaims=Array.from({length:31},(_,i)=>(i+1)*32);r.essence=10;
  r.spell='verdict';r.spellRanks={verdict:3,storm:2,aegis:3};r.chronicle.spellUses.verdict=42;r.ward=100;
  r.foeHp=Math.round(104*(1+.44*(r.wave-1)**1.32));const old={version:6,updated:Date.now(),run:r};const loaded=decode(JSON.stringify(old));assert.ok(loaded);
- assert.equal(loaded.version,8);assert.equal(loaded.run.essence,34);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
+ assert.equal(loaded.version,9);assert.equal(loaded.run.essence,34);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
  assert.equal(profileFromRun(loaded.run).best.mastery,3);assert.equal(loaded.run.spellRanks.aegis,3);assert.equal(loaded.run.ward,5);
  assert.equal(decode(serialize(loaded.run)).run.essence,34);
  const current=loaded.run;current.intent='storm';current.castWait=1.234;current.castDelay=.4;current.enemyTurns=7;

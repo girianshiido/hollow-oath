@@ -9,7 +9,7 @@ import {BOON_TEXT, ROAD_WAVES, roadArrival, roadDetail, roadFee, roadScene, reso
 import { installGameGestures } from './gestures.ts';
 import { installInstructions, renderInstall, requestInstall } from './install.ts';
 import {
-  CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, spellRankCap, encounter, gearBonus, gearId, gearName, gearPrice, GEAR_NAMES, GEAR_SLOTS,
+  CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, MAX_SPELL_RANK, encounter, gearBonus, gearId, gearName, GEAR_NAMES, GEAR_SLOTS,
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
@@ -240,7 +240,7 @@ function help(): void {
     <p><strong>Chapter guardians.</strong> Every fourth wave ends with a cinematic entrance, a dedicated score and three to five named phases. The entrance ends automatically or with Begin battle. Attack Speed stays unchanged. Special moves prepare for three seconds: the ↯ marker identifies the action that interrupts the preparation, even through a different seal. MP is still spent and normal damage still obeys the seal. The ! marker identifies the seal-breaking action. Save mana for changing phases, or use Aegis to soften a blow.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
-    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. Spells always cast at the highest level learned, up to level 10 as the campaign progresses. The next wave begins with full HP and MP.</p>
+    <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on every victory, including repeated attempts. Spend it at the Workshop to learn spells or raise their level. Spells always cast at the highest level learned, up to level 10 without wave restrictions. Each successive upgrade costs more Essence and more MP per cast. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
 }
@@ -612,7 +612,7 @@ function battleEvent(event: BattleEvent): void {
       if (event.loot) toast('Relic found · ' + gearName(event.loot, current().hero));
       rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot, current().hero) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
-      if (battle?.foe.boss && event.essence && CHAPTERS.some(c => c.wave === current().wave)) notifyJournal(current().wave);
+      if (battle?.foe.boss && event.firstClear && CHAPTERS.some(c => c.wave === current().wave)) notifyJournal(current().wave);
       save();
       break;
     case 'enter':
@@ -716,13 +716,16 @@ function gearView(): void {
     body = `<div class="sheet-caption"><span>ARCANE WORKSHOP</span><span class="coin">◆ ${fmt(r.essence)} Essence</span></div>
       <div class="gear-list">${SPELL_IDS.map(id => {
         const s = SPELLS[id], rank = knownRank(r, id), price = workshopPrice(r, id);
-        const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? (rank >= 10 ? 'Max level' : 'Wave ' + (Math.ceil(rank * 31 / 9) + 1)) : '◆ ' + price;
+        const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? 'Max level' : '◆ ' + price;
         const action = (rank ? 'Upgrade ' : 'Learn ') + s.name;
+        const wardText=(level:number)=>{const p=aegisProtection(level);return '−'+Math.round(p.reduction*100)+'% / '+p.charges+' hits';};
+        const effect=id==='aegis' ? 'Protection: '+wardText(Math.max(1,rank))+(price!==undefined&&rank?' → '+wardText(rank+1):'') : (id==='mend'?'Healing':'Spell power')+': ×'+spellBoost(Math.max(1,rank)).toFixed(2)+(price!==undefined&&rank?' → ×'+spellBoost(rank+1).toFixed(2):'');
         return `<div class="gear-row"><span><strong>${spellLabel(r, id)}</strong>
           <small>${s.text}</small>
-          ${price === undefined ? '' : `<small>${rank ? 'Next level · ' : 'Learn · '}${spellCost(id, rank + 1)} MP per cast</small>`}</span>
+          <small>${effect}</small>
+          <small>${rank ? 'Current: '+spellCost(id,rank)+' MP per cast' : 'Level 1: '+spellCost(id,1)+' MP per cast'}${price !== undefined && rank ? ' → Next: '+spellCost(id,rank+1)+' MP' : ''}</small></span>
           <button class="compact" data-action="buy-spell" data-id="${id}" ${price === undefined || r.essence < price ? 'disabled' : ''} aria-label="${price === undefined ? status : action + ' for ' + price + ' Arcane Essence'}">${status}</button></div>`;
-      }).join('')}</div><p class="sheet-foot">Spells always use their highest learned level. Upgrades raise MP costs. Current wave allows level ${spellRankCap(r.wave)} / 10. Marked foes and guardians yield Essence once per file.</p>`;
+      }).join('')}</div><p class="sheet-foot">No wave requirements. Max spell level ${MAX_SPELL_RANK}. Upgrades are permanent and always cast at the highest learned level: stronger effects also use more MP. Marked foes give 1 Essence and guardians give 3 on every victory, including retries.</p>`;
   } else {
     body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
       <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
@@ -730,7 +733,7 @@ function gearView(): void {
         const gear = {slot: g, tier: shopTier, relic: false};
         const owned = r.inventory.some(item => gearId(item) === gearId(gear));
         const price = purchasePrice(r, gear), name = gearName(gear, r.hero);
-        return `<div class="gear-row"><span><strong>${name}</strong><small>${bonusText(gear)}</small>${g === 'weapon' && price < gearPrice(gear) ? '<small>Weapon upgrade credit included · Keeps your collection</small>' : ''}</span>
+        return `<div class="gear-row"><span><strong>${name}</strong><small>${bonusText(gear)}</small></span>
           <button class="compact" data-action="buy" data-id="${g}" ${owned || r.gold < price ? 'disabled' : ''} aria-label="${owned ? name + ' owned' : 'Buy ' + name + ' for ' + price + ' gold'}">${owned ? 'Owned' : '◆ ' + fmt(price)}</button></div>`;
       }).join('')}</div><p class="sheet-foot">Every purchase is added to your collection.</p>`;
   }
