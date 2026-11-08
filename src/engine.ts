@@ -120,6 +120,7 @@ export function resumeWave(run: Run): void {
   const values = stats(run);
   run.hp = values.hp;
   run.mp = values.mp;
+  if (run.mode === 'magic' && run.spell === 'mend') run.mode = 'steel';
   run.ward = 0;
   run.chronicle.gearFreeAttempt = Object.keys(run.equipped).length === 0;
   run.chronicle.spellFreeAttempt = true;
@@ -207,11 +208,17 @@ export class Battle {
     this.foe = encounter(run.wave, run.step);
     this.prepareSeals();
     this.player = stats(run);
+    this.settleMend();
   }
   refresh(): void {
     this.foe = encounter(this.run.wave, this.run.step);
     this.prepareSeals();
     this.player = stats(this.run);
+    this.settleMend();
+  }
+  private settleMend(): void {
+    const run = this.run;
+    if (run.mode === 'magic' && run.spell === 'mend' && (run.hp >= this.player.hp || run.mp + 1e-8 < preparedSpellCost(run))) run.mode = 'steel';
   }
   private prepareSeals(): void {
     this.foe.seals = this.foe.seals.map(strike => strike === 'steel' || knownRank(this.run, strike) ? strike : 'steel');
@@ -219,6 +226,7 @@ export class Battle {
   tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
     if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null || run.chapterIntro) return;
+    this.settleMend();
     const clock = run.chronicle;
     const timeScale = Number.isFinite(realSeconds) && realSeconds > 0 ? realSeconds / seconds : 1;
     const track = (elapsed: number) => {
@@ -335,9 +343,7 @@ export class Battle {
     const cost = spellCost(run.spell, rank);
     const boost = spellBoost(rank);
     let strike: Strike = 'steel';
-    const shouldCast = run.spell === 'mend'
-      ? this.player.hp - run.hp >= Math.min(this.player.hp * 0.2, this.healPower())
-      : run.spell !== 'aegis' || run.ward === 0;
+    const shouldCast = run.spell !== 'aegis' || run.ward === 0;
     if (run.mode === 'magic' && shouldCast) {
       if (run.mp + 1e-8 < cost) {
         run.mode = 'steel';
@@ -352,7 +358,8 @@ export class Battle {
         }
         if (run.spell === 'mend') {
           const amount = Math.min(this.player.hp - run.hp, Math.round(this.healPower() * boost));
-          run.hp += amount;
+          run.hp = Math.min(this.player.hp, run.hp + amount);
+          if (run.hp >= this.player.hp) run.mode = 'steel';
           this.send({type: 'heal', amount: Math.round(amount)});
           return;
         }

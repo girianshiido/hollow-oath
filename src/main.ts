@@ -240,7 +240,7 @@ function help(): void {
     <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. Aegis protects several incoming hits and returns to steel after casting.</p>
     <p><strong>Chapter guardians.</strong> Every fourth wave ends with a cinematic entrance, a dedicated score and three to five named phases. The entrance ends automatically or with Begin battle. Attack Speed stays unchanged. Special moves prepare for three seconds: the ↯ marker identifies the action that interrupts the preparation, even through a different seal. MP is still spent and normal damage still obeys the seal. The ! marker identifies the seal-breaking action. Save mana for changing phases, or use Aegis to soften a blow.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
-    <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
+    <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend spends its full MP cost whenever any HP is missing. It returns to steel at full HP or insufficient MP and stays off until selected again. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
     <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on every victory, including repeated attempts. Spend it at the Workshop to learn spells or raise their level. Spells always cast at the highest level learned, up to level 10 without wave restrictions. Each successive upgrade costs more Essence and more MP per cast. The next wave begins with full HP and MP.</p>
     ${screen === 'arena' ? '<button class="secondary wide" data-action="options">Back to options</button>' : ''}
   </div>`);
@@ -640,7 +640,7 @@ function spellInfo(id: SpellId): void {
   const r = current(), spell = SPELLS[id], rank = knownRank(r, id), shown = Math.max(1, rank);
   const protection = aegisProtection(shown);
   const detail = id === 'aegis' ? `−${Math.round(protection.reduction * 100)}% physical and magic damage for ${protection.charges} incoming attacks. Cast once, then return to steel. Active charges survive changing spells. Cannot stack or refresh remaining charges.` :
-    id === 'mend' ? `Healing ×${spellBoost(shown).toFixed(2)}. Casts only when wounded; otherwise uses steel.` :
+    id === 'mend' ? `Healing ×${spellBoost(shown).toFixed(2)}. Casts at full MP cost whenever any HP is missing, even for a small wound. Automatically selects steel after reaching full HP or when MP are insufficient. It stays off until you select it again.` :
     `Power ×${spellBoost(shown).toFixed(2)} of the base spell.${id === 'rime' ? ' Delays enemy attacks; a prepared spell can be delayed by at most 0.6 seconds in total.' : ''}`;
   const unlock = rank ? '' : r.level < spell.level ? `Reach character level ${spell.level}.${spell.price ? ' Then learn it at the Workshop after a defeat.' : ' Learned automatically.'}` : 'Learn this spell at the Workshop after a defeat for ' + spell.price + ' Arcane Essence.';
   openDialog('spell-info', spellLabel(r, id), `<div class="spell-detail" style="--spell:${spell.color}"><div class="spell-symbol">${icon(id === 'aegis' ? 'shield' : id)}</div><p>${spell.text}</p><p>${detail}</p><p><strong>${rank ? 'Current level: ' + rank + ' / 10' : 'Not learned · Level 1 preview'} · ${spellCost(id, shown)} MP</strong></p>${unlock ? '<p>' + unlock + '</p>' : ''}<p class="sheet-foot">Combat is paused. Closing this page keeps your selected action.</p><button class="secondary wide" data-action="close">Return to combat ${icon('next')}</button></div>`, 'SPELL DETAILS');
@@ -655,7 +655,10 @@ function selectSpell(id: SpellId): void {
 function mode(value: 'steel' | 'magic'): void {
   if (!battle || current().phase !== 'fight') return;
   const r = current();
-  if (value === 'magic' && r.mp + 1e-8 < preparedSpellCost(r)) {
+  if (value === 'magic' && r.spell === 'mend' && r.hp >= battle.player.hp) {
+    paceHint = 'HP already full · Steel selected';
+    r.mode = 'steel';
+  } else if (value === 'magic' && r.mp + 1e-8 < preparedSpellCost(r)) {
     paceHint = 'Need ' + preparedSpellCost(r) + ' MP for ' + spellLabel(r, r.spell);
     r.mode = 'steel';
   } else {

@@ -90,7 +90,7 @@ test('Magic consumes MP and returns to the sword; MP recovers on the combat cloc
   battle.tick(0.2);
   assert.ok(r.mp > prior);
 });
-test('Mend only spends mana when wounded and restores HP', () => {
+test('Mend stays off at full HP until explicitly selected again', () => {
   const r = at(1, 2, 5);
   Object.assign(r, {mode: 'magic', spell: 'mend'});
   const events = [];
@@ -100,7 +100,9 @@ test('Mend only spends mana when wounded and restores HP', () => {
   other.tick(0.5);
   assert.equal(r.mp, other.player.mp);
   assert.ok(!events.includes('heal'));
+  assert.equal(r.mode,'steel');
   r.hp = other.player.hp * 0.4;
+  r.mode = 'magic';
   const prior = r.hp;
   other.tick(1.2);
   assert.ok(r.hp > prior);

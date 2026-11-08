@@ -52,7 +52,7 @@ interface Spell {
 }
 export const SPELLS: Record<SpellId, Spell> = {
   ember: {name: 'Ember Bolt', level: 1, cost: 4, color: '#ff9d60', strike: 'ember', text: 'Hurls fire. Burns Briar Seals.'},
-  mend: {name: 'Mend', level: 2, cost: 6, color: '#9effc1', text: 'Restores HP when wounded. Uses steel while healthy.'},
+  mend: {name: 'Mend', level: 2, cost: 6, color: '#9effc1', text: 'Heals any missing HP. Returns to steel at full HP or insufficient MP.'},
   rime: {name: 'Rime Lance', level: 4, cost: 5, color: '#92e9ff', strike: 'rime', text: 'Pierces with ice and delays the next enemy strike. Quenches Cinder Seals.'},
   storm: {name: 'Storm Sigil', level: 7, cost: 7, color: '#d4adff', strike: 'storm', text: 'Strikes with lightning and pierces magic defense. Breaks Mirror Seals.'},
   aegis: {name: 'Aegis', level: 3, cost: 8, color: '#9fe6c0', price: 5, text: 'Reduces physical and magic damage for several incoming attacks. Returns to steel after casting; charges survive spell changes.'}
