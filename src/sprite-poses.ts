@@ -1,7 +1,7 @@
 export type MonsterPose = 'idle'|'attack'|'hurt';
 export const PIKEMAN_FRAMES = {
   idle:{art:'foe-2',x:0,y:0},
-  attack:{art:'foe-2-attack',x:6/305*100,y:8/358*100},
+  attack:{art:'foe-2-attack-v2',x:6/305*100,y:8/358*100},
   hurt:{art:'foe-2-hurt',x:-3/305*100,y:3/358*100}
 } as const;
 const DURATION = {attack:240,hurt:190};
