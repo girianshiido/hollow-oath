@@ -16,6 +16,7 @@ import {
 import { activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, purchasePrice, weaponRank, wavePower, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
+import {mountSpriteTest} from './sprite-test.ts';
 import { achievementHistory, decode, deleteSlot, listSlots, readSlot, serialize, writeSlot, type Save } from './saves.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -1196,5 +1197,5 @@ function frame(now: number): void {
   if (dirty && now >= nextSave) save();
 }
 installGameGestures();
-title();
-requestAnimationFrame(frame);
+if(new URLSearchParams(location.search).get('sprite-test')==='pikeman')void mountSpriteTest(app);
+else {title();requestAnimationFrame(frame);}

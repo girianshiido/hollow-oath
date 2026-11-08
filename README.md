@@ -25,6 +25,8 @@ Hollow Oath is a single-player illustrated dark-fantasy RPG. The interface, guid
 
 The Achievements page on the title screen and in Options shares progress across all adventures on this device. Totals accumulate across files and records keep their best result. Deleting a save keeps its achievements. Timed challenges require a new game and count active combat, transitions and failed attempts. Menus and defeat screens pause the timer. Existing saves credit milestones supported by their saved data.
 
+An isolated [Crypt Pikeman sprite rehearsal](https://girianshiido.github.io/hollow-oath/?sprite-test=pikeman) repeats the same monster 32 times using standing, attack and hit frames. It has no saved progression or rewards. Its options offer original-image comparison, pause, half speed, still-frame inspection and effect visibility. The regular campaign keeps its original sprites pending review. See [frame assets and image prompts](SPRITE_REHEARSAL.md).
+
 ## Run locally
 
 Install Node.js 22.18 or later. In this directory:
