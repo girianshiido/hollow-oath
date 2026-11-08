@@ -18,6 +18,8 @@ const LEVELS: Record<Cue, number> = {
 const MUSIC = {
   title: {file: 'music-title', gain: 0.34},
   battle: {file: 'music-battle', gain: 0.28},
+  chapter: {file:'music-chapter',gain:.31,loopStart:5.714288,loopEnd:74.285744},
+  final: {file:'music-final-boss',gain:.31,loopStart:5.454544,loopEnd:70.909072},
   defeat: {file: 'music-defeat', gain: 0.36},
   ending: {file: 'music-ending', gain: 0.34}
 } as const;
@@ -115,6 +117,9 @@ export function setMusic(next: MusicScene | 'silent'): void {
   void refreshMusic();
 }
 
+export function preloadMusic(next: MusicScene): void {
+  if(context && settings.musicVolume>0 && !settings.muted)void load(MUSIC[next].file);
+}
 async function refreshMusic(): Promise<void> {
   const requested = scene;
   if (requested === 'silent' || !context || !musicBus || !settings.musicVolume || !audioActive() || document.hidden ||
@@ -132,6 +137,10 @@ async function refreshMusic(): Promise<void> {
   source.loop = true;
   // The battle master is exactly 192 quarter notes at 150 BPM.
   if (requested === 'battle') source.loopEnd = Math.min(buffer.duration, 76.8);
+  if ('loopStart' in track) {
+    source.loopStart=track.loopStart;
+    source.loopEnd=Math.min(buffer.duration,track.loopEnd);
+  }
   gain.gain.setValueAtTime(0, at);
   gain.gain.linearRampToValueAtTime(track.gain, at + 0.24);
   source.connect(gain);

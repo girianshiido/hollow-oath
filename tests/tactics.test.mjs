@@ -3,7 +3,7 @@ import {aegisProtection, encounter, HERO_IDS, spellRankCap, SPELL_IDS, spellCost
 import {activeSeal, Battle, buySpell, enemyAffinity, newRun, sealFloor, stats, workshopPrice} from '../src/engine.ts';
 import {profileFromRun} from '../src/achievements.ts';
 import {decode, serialize} from '../src/saves.ts';
-function setup(hero='vanguard',wave=16,step=32){const r=newRun(hero);Object.assign(r,{wave,step,level:40,wait:0,foeHp:encounter(wave,step).hp});r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
+function setup(hero='vanguard',wave=15,step=32){const r=newRun(hero);Object.assign(r,{wave,step,level:40,wait:0,foeHp:encounter(wave,step).hp});r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
 test('Five direct spells progress to ten levels across the whole campaign with affordable Essence totals',()=>{
  assert.deepEqual(SPELL_IDS,['ember','mend','rime','storm','aegis']);
  assert.equal(spellRankCap(1),1);assert.equal(spellRankCap(32),10);
@@ -74,8 +74,8 @@ test('Five boss phases change weaknesses and no required seal is resisted or loc
 test('Legacy Verdict purchases are refunded once, counts survive and a partially cast enemy spell round-trips',()=>{
  const r=setup('hexweaver',32,32);r.essenceClaims=Array.from({length:31},(_,i)=>(i+1)*32);r.essence=10;
  r.spell='verdict';r.spellRanks={verdict:3,storm:2,aegis:3};r.chronicle.spellUses.verdict=42;r.ward=100;
- const old={version:6,updated:Date.now(),run:r};const loaded=decode(JSON.stringify(old));assert.ok(loaded);
- assert.equal(loaded.version,7);assert.equal(loaded.run.essence,34);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
+ r.foeHp=Math.round(104*(1+.44*(r.wave-1)**1.32));const old={version:6,updated:Date.now(),run:r};const loaded=decode(JSON.stringify(old));assert.ok(loaded);
+ assert.equal(loaded.version,8);assert.equal(loaded.run.essence,34);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
  assert.equal(profileFromRun(loaded.run).best.mastery,3);assert.equal(loaded.run.spellRanks.aegis,3);assert.equal(loaded.run.ward,5);
  assert.equal(decode(serialize(loaded.run)).run.essence,34);
  const current=loaded.run;current.intent='storm';current.castWait=1.234;current.castDelay=.4;current.enemyTurns=7;

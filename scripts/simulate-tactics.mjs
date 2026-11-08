@@ -1,5 +1,5 @@
 import {HERO_IDS,GEAR_SLOTS,gearId,SPELL_IDS,spellCost} from '../src/content.ts';
-import {Battle,newRun,stats,activeSeal,enemyAffinity,knownRank,buyGear,equipGear,buySpell,resumeWave,weaponRank} from '../src/engine.ts';
+import {Battle,newRun,stats,activeSeal,enemyAffinity,knownRank,buyGear,equipGear,buySpell,resumeWave,weaponRank,finishChapterIntro,chapterCounter} from '../src/engine.ts';
 import {decode,serialize} from '../src/saves.ts';
 import {resolveRoad} from '../src/journey.ts';
 for(const hero of HERO_IDS){
@@ -7,6 +7,7 @@ for(const hero of HERO_IDS){
  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
  const r=newRun(hero),b=new Battle(r,()=>{},random);let elapsed=0,guard=0,maxWave=1, encounterTime=0, encounterKey="";
  while(r.phase!=='victory'&&elapsed<180000&&r.deaths<1000){
+  if(r.chapterIntro)finishChapterIntro(r);
   if(r.journey.pending!==null){const choice=process.argv.includes('--road-choices')?guard%3:2;if(!resolveRoad(r,choice))resolveRoad(r,2);}
   if(r.phase==='fallen'){
    // Recovery camp purchases the highest affordable gear and learned ranks.
@@ -19,7 +20,8 @@ for(const hero of HERO_IDS){
   encounterTime+=.1;
   if(r.phase==='fight'){
    const seal=activeSeal(r,b.foe),weak=enemyAffinity(r,b.foe)?.weak;
-   let action=seal??(r.hp<stats(r).hp*.6?'mend':r.intent&&r.ward===0&&b.foe.boss?'aegis':weak??'steel');
+   const counter=chapterCounter(r,b.foe);
+   let action=seal??(r.hp<stats(r).hp*.6&&(!counter||r.castWait>1.4)?'mend':counter??(r.intent&&r.ward===0&&b.foe.boss?'aegis':weak??'steel'));
    // Stop spending healing MP on a losing equipment mismatch; fall and re-equip.
    if(encounterTime>35&&weaponRank(r)<r.wave)action='steel';
    if(action!=='steel'&&knownRank(r,action)&&r.mp>=spellCost(action,knownRank(r,action))){r.spell=action;r.mode='magic'}else r.mode='steel';

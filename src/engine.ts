@@ -1,5 +1,6 @@
 import { newChronicle, type Chronicle } from './achievements.ts';
 import {newJourney, offerRoad, type Journey} from './journey.ts';
+import {CHAPTER_COUNTER,chapterInfo} from './chapters.ts';
 import {
   encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, spellRankCap, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
   type Enemy, type EnemyMove, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
@@ -11,6 +12,7 @@ export interface Run {
   name: string;
   journalRead: number;
   journey: Journey;
+  chapterIntro: boolean;
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
@@ -23,6 +25,8 @@ export type BattleEvent =
   | {type: 'hit'; strike: Strike; damage: number; affinity?: 'resisted' | 'immune' | 'weak'}
   | {type: 'hurt'; damage: number; arcane: boolean; move: EnemyMove; blocked: number}
   | {type: 'intent'; move: EnemyMove}
+  | {type: 'interrupt'; strike: Strike}
+  | {type: 'chapter-phase'; phase: number}
   | {type: 'enemy-heal'; amount: number; drain: boolean}
   | {type: 'seal'; strike: Strike}
   | {type: 'block'; strike: Strike; attempt: Strike}
@@ -56,7 +60,7 @@ export function enemyStage(run: Run, foe: Enemy): number {
   return stage;
 }
 export function enemyAffinity(run: Run, foe: Enemy): Enemy['affinity'] {
-  if (!foe.boss || run.wave < 5) return foe.affinity;
+  if (!foe.boss || (run.wave < 5 && !foe.chapter)) return foe.affinity;
   const weak = foe.seals[enemyStage(run, foe)] ?? 'steel';
   const choices: Strike[] = ['steel', 'ember', 'rime', 'storm'];
   return {weak, resists: choices[(choices.indexOf(weak) + 2) % 4]!, immune: false};
@@ -66,20 +70,23 @@ function recoveryCeiling(run: Run, foe: Enemy): number {
 }
 export function enemyPreparation(foe: Enemy, move: EnemyMove): number {
   if (move === 'steel') return 0;
+  if (foe.chapter) return 3;
   if (foe.boss) return 1.8;
   // Routine spells use the normal Speed clock. Only special blows need an extra wind-up.
   return move === 'heavy' || move === 'mend' || move === 'drain' ? 1 : 0;
 }
 export function nextEnemyMove(run: Run, foe: Enemy): EnemyMove {
-  const moves = foe.moves;
-  const move = moves[(run.enemyTurns + enemyStage(run, foe)) % moves.length]!;
+  const moves: readonly EnemyMove[] = foe.chapter ? chapterInfo(run.wave).moves[enemyStage(run,foe)]! : foe.moves;
+  const move = moves[(run.enemyTurns + (foe.chapter ? 0 : enemyStage(run, foe))) % moves.length]!;
   return move === 'mend' && (run.enemyHeals >= foe.healLimit || run.foeHp >= Math.min(foe.hp * .85, recoveryCeiling(run, foe)) || run.enemyRecovery >= Math.floor(foe.hp * .18)) ? 'steel' : move;
 }
 export function activeSeal(run: Run, foe: Enemy): Strike | undefined {
   return run.foeHp >= 1 && run.foeHp <= sealFloor(foe, run.broken) ? foe.seals[run.broken] : undefined;
 }
 function openEncounter(run: Run): void {
-  run.foeHp = encounter(run.wave, run.step).hp;
+  const foe=encounter(run.wave, run.step);
+  run.foeHp = foe.hp;
+  run.chapterIntro = Boolean(foe.chapter);
   run.broken = 0;
   run.enemyTurns = run.enemyHeals = run.enemyRecovery = run.castWait = run.castDelay = 0;
   run.intent = null;
@@ -93,7 +100,7 @@ export function newRunId(): string {
 }
 export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): Run {
   const run: Run = {
-    runId: newRunId(), journalRead: 0, journey: newJourney(), name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
+    runId: newRunId(), journalRead: 0, journey: newJourney(), chapterIntro: false, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
     chronicle: newChronicle(), essence: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
@@ -122,6 +129,14 @@ export function resumeWave(run: Run): void {
 
 export function canShop(run: Run): boolean {
   return run.phase === 'fallen';
+}
+export function finishChapterIntro(run: Run): void {
+  run.chapterIntro=false;
+}
+export function chapterCounter(run: Run,foe: Enemy): Strike | undefined {
+  if(!foe.chapter || !run.intent)return;
+  const strike=CHAPTER_COUNTER[run.intent];
+  return strike && (strike==='steel' || knownRank(run,strike)) ? strike : strike ? 'ember' : undefined;
 }
 
 export function knownRank(run: Run, id: SpellId): number {
@@ -207,7 +222,7 @@ export class Battle {
   }
   tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
-    if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null) return;
+    if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null || run.chapterIntro) return;
     const clock = run.chronicle;
     const timeScale = Number.isFinite(realSeconds) && realSeconds > 0 ? realSeconds / seconds : 1;
     const track = (elapsed: number) => {
@@ -227,7 +242,7 @@ export class Battle {
     if (run.phase !== 'fight') return;
     const epsilon = 1e-8;
     // Schedule both clocks on the same time axis. The enemy acts first on an exact tie.
-    while (remaining > epsilon && run.phase === 'fight' && run.journey.pending === null) {
+    while (remaining > epsilon && run.phase === 'fight' && run.journey.pending === null && !run.chapterIntro) {
       if (run.wait > epsilon) {
         const elapsed = Math.min(run.wait, remaining);
         run.wait -= elapsed;
@@ -355,6 +370,10 @@ export class Battle {
         strike = spell.strike!;
       }
     }
+    if(chapterCounter(run,this.foe)===strike) {
+      run.intent=null; run.castWait=run.castDelay=run.enemyGauge=0; run.enemyTurns++;
+      this.send({type:'interrupt',strike});
+    }
     const seal = activeSeal(run, this.foe);
     if (seal) {
       if (seal !== strike) {
@@ -382,7 +401,12 @@ export class Battle {
     }
     const nextFloor = sealFloor(this.foe, run.broken);
     const actual = Math.min(Math.max(0, run.foeHp - nextFloor), damage);
+    const priorStage=enemyStage(run,this.foe);
     run.foeHp -= actual;
+    if(this.foe.chapter && run.foeHp>0 && enemyStage(run,this.foe)!==priorStage) {
+      run.intent=null;run.castWait=run.castDelay=run.enemyGauge=0;
+      this.send({type:'chapter-phase',phase:enemyStage(run,this.foe)});
+    }
     if (actual > 0) {
       run.chronicle.hits++;
       if (strike === 'steel') run.chronicle.steelHits++;

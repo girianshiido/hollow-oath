@@ -1,5 +1,7 @@
 import { ACHIEVEMENTS, ACHIEVEMENT_GROUPS, emptyProfile, mergeProfile, profileFromRun } from './achievements.ts';
-import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound, setMusic, stopSounds, unlockAudio } from './audio.ts';
+import { audioActive, audioSettings, backgroundAudio, configureAudio, playSound, setMusic, stopSounds, unlockAudio, preloadMusic } from './audio.ts';
+import {chapterBoss,chapterInfo} from './chapters.ts';
+import {chapterCounter,enemyPreparation,finishChapterIntro} from './engine.ts';
 import { offlineStatus, renderUpdates, updateGame } from './updates.ts';
 import './style.css';
 import { CHAPTERS, journalArt, journalUnlocked, journalUnread, journalVoice } from './journal.ts';
@@ -59,6 +61,7 @@ let displaySeal = '';
 let displayPhase = '';
 let rewardLine = '';
 let paceHint = '';
+let chapterKey='', chapterElapsed=0, chapterFrame=0, chapterReady=false;
 const current = (): Run => battle!.run;
 
 function mount(name: string, body: string): void {
@@ -234,6 +237,7 @@ function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
     <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense. Attack damage varies by ±12%. Each weapon rank below the wave halves offensive power; a weapon at the current wave rank restores full power. This affects both steel and damaging spells, while Mend and Aegis keep their normal effects.</p>
     <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. Aegis protects several incoming hits and returns to steel after casting.</p>
+    <p><strong>Chapter guardians.</strong> Every fourth wave ends with a cinematic entrance, a dedicated score and three to five named phases. The entrance ends automatically or with Begin battle. Attack Speed stays unchanged. Special moves prepare for three seconds: the ↯ marker identifies the action that interrupts the preparation, even through a different seal. MP is still spent and normal damage still obeys the seal. The ! marker identifies the seal-breaking action. Save mana for changing phases, or use Aegis to soften a blow.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
     <p><strong>The armory.</strong> Equip gear anytime in the left menu. The Shop and Workshop open only after a defeat, before you retry. Each wave opens a new gear rank. Some bosses drop relics. Marked foes and guardians award Arcane Essence on their first defeat. Spend it at the Workshop to learn spells or raise their level. Spells always cast at the highest level learned, up to level 10 as the campaign progresses. The next wave begins with full HP and MP.</p>
@@ -289,6 +293,7 @@ function advanceStory(): void {
 }
 
 function startArena(run: Run, isNew = false): void {
+  chapterKey='';chapterElapsed=chapterFrame=0;chapterReady=false;
   createSlot = isNew;
   battle = new Battle(run, battleEvent);
   history = achievementHistory(run.runId);
@@ -317,6 +322,7 @@ function startArena(run: Run, isNew = false): void {
       <span id="enemy-kind" class="kicker"></span><h1 id="enemy-name"></h1>
       <div class="enemy-meter meter" id="enemy-meter" role="progressbar" aria-label="Enemy HP"><i id="enemy-fill"></i></div>
       <div id="seal" class="seal" role="status"></div>
+      <div id="chapter-phase" class="chapter-phase" hidden></div>
       <p id="affinity" class="affinity"></p>
     </section>
     <div class="battle-art" id="battle-art">
@@ -335,6 +341,7 @@ function startArena(run: Run, isNew = false): void {
       <span class="sr-only" id="actions-help">Tap to select automatic casting. Hold a spell, right-click it or press Shift+Enter on it for details and pause combat. Only the framed action is selected. A ! marks the action needed for a seal. Keys 1 to 6 select actions.</span>
     </footer>
     <div id="outcome" hidden></div>
+    <div id="chapter-curtain" class="chapter-curtain" hidden></div>
   </main>`);
   effects = new Effects(find<HTMLCanvasElement>('fx'), run.hero);
   bindActions();
@@ -368,6 +375,9 @@ function bindActions(): void {
 }
 function displayEncounter(): void {
   const r = current(), foe = battle!.foe;
+  document.querySelector('.arena')?.classList.toggle('chapter-arena',Boolean(foe.chapter));
+  if(r.phase==='fight')setMusic(foe.chapter ? r.wave===32?'final':'chapter' : 'battle');
+  if(chapterBoss(r.wave) && r.step>=30 && r.step<32)preloadMusic(r.wave===32?'final':'chapter');
   const arenaIndex = [0, 1, 2, 0, 1, 2, 3, 3][Math.floor((r.wave - 1) / 4)]!;
   find('world').style.setProperty('--arena-art', `url("${art('arena-' + arenaIndex)}")`);
   find('world').style.setProperty('--sky', String(((r.wave - 1) % 4) * 17));
@@ -392,6 +402,27 @@ function displayEncounter(): void {
   if (r.step < 32) new Image().src = art(encounter(r.wave, r.step + 1).art);
   if (r.step === 1 && r.wave > 1 && wavePower(r) < 1) toast('Wave ' + r.wave + ' · Stronger wards. Weapon rank ' + r.wave + ' restores full power.');
   displaySeal = '';
+}
+function chapterEntrance(now:number): void {
+  const r=current(),key=r.runId+':'+r.wave,node=find('chapter-curtain');
+  if(chapterKey!==key || node.hidden) {
+    chapterKey=key;chapterElapsed=chapterFrame=0;chapterReady=false;
+    const chapter=chapterInfo(r.wave);
+    node.innerHTML=`<div class="chapter-halo" aria-hidden="true"></div><img class="chapter-portrait" src="${art(battle!.foe.art)}" alt="${battle!.foe.name}"><div class="chapter-inscription"><p class="kicker">CHAPTER ${r.wave/4} / 8 · ${chapter.title}</p><h2>${battle!.foe.name}</h2><p>${chapter.line}</p><button class="text-action" data-action="chapter-begin">Begin battle ${icon('next')}</button></div>`;
+    node.hidden=false;
+    const image=node.querySelector<HTMLImageElement>('img')!;
+    void image.decode().catch(()=>{}).then(()=>{if(node.isConnected && chapterKey===key)chapterReady=true;});
+  }
+  if(!chapterReady){chapterFrame=0;return;}
+  if(chapterFrame)chapterElapsed+=Math.min(.25,(now-chapterFrame)/1000);
+  chapterFrame=now;
+  if(chapterElapsed>=2.8)chapterBegin();
+}
+function chapterBegin(): void {
+  if(!battle || !current().chapterIntro)return;
+  finishChapterIntro(current());find('chapter-curtain').hidden=true;
+  chapterFrame=chapterElapsed=lastFrame=0;
+  save();
 }
 
 function meter(id: string, value: number, max: number): void {
@@ -426,15 +457,22 @@ function updateHud(): void {
   find('aegis-status').textContent = [r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '',r.journey.boon ? BOON_TEXT[r.journey.boon.kind] + ' · ' + r.journey.boon.left + ' victories' : ''].filter(Boolean).join('\n');
   const intent = find('enemy-intent'), next = r.intent ?? nextEnemyMove(r, foe);
   intent.hidden = r.phase !== 'fight';
-  intent.textContent = r.intent ? ENEMY_MOVES[next].warning : 'Next: ' + ENEMY_MOVES[next].name;
+  const counter=chapterCounter(r,foe);
+  intent.textContent = r.intent ? ENEMY_MOVES[next].warning+(counter?' · '+(counter==='steel'?'Steel':SPELLS[counter].name)+' interrupts':'') : 'Next: ' + ENEMY_MOVES[next].name;
   intent.classList.toggle('casting', Boolean(r.intent));
   intent.style.setProperty('--intent', ENEMY_MOVES[next].color);
   find('figure').classList.toggle('preparing', Boolean(r.intent));
   find('figure').style.setProperty('--intent', ENEMY_MOVES[next].color);
-  intent.style.setProperty('--cast', String(r.intent ? Math.min(1, r.castWait / 2.4) : 0));
+  intent.style.setProperty('--cast', String(r.intent ? Math.min(1, r.castWait / enemyPreparation(foe,r.intent)) : 0));
   const trait = enemyAffinity(r, foe);
   find('affinity').textContent = trait ? (trait.immune ? 'Immune to ' : 'Resists ') + ELEMENT_NAMES[trait.resists] + ' · Weak to ' + ELEMENT_NAMES[trait.weak] : '';
-  if (foe.boss) find('enemy-kind').textContent = 'WAVE GUARDIAN · PHASE ' + (enemyStage(r, foe) + 1) + '/' + foe.seals.length;
+  if (foe.boss) find('enemy-kind').textContent = (foe.chapter?'CHAPTER '+r.wave/4:'WAVE GUARDIAN')+' · PHASE ' + (enemyStage(r, foe) + 1) + '/' + foe.seals.length;
+  const phaseNode=find('chapter-phase');phaseNode.hidden=!foe.chapter;
+  if(foe.chapter) {
+    const stage=enemyStage(r,foe),phase=chapterInfo(r.wave).phases[stage]!;
+    if(phaseNode.dataset.phase!==r.wave+':'+stage){phaseNode.innerHTML=`<span>${phase}</span><div class="chapter-marks" aria-label="Phase ${stage+1} of ${foe.seals.length}">${foe.seals.map((_,i)=>`<i class="${i<stage?'done':i===stage?'now':''}"></i>`).join('')}</div>`;phaseNode.dataset.phase=r.wave+':'+stage;}
+  }
+  for(const button of app.querySelectorAll<HTMLElement>('.combat-button'))button.classList.toggle('counter',Boolean(counter && (button.id==='steel'?counter==='steel':button.dataset.id===counter)));
   const seal = r.phase === 'fight' ? activeSeal(r, foe) : undefined;
   for (const button of app.querySelectorAll<HTMLElement>('.combat-button')) button.classList.toggle('recommended', Boolean(seal && (button.id === 'steel' ? seal === 'steel' : button.dataset.id === seal)));
   const sealKey = seal ? seal + ':' + r.broken : '';
@@ -459,7 +497,7 @@ function outcome(): void {
     });
     return;
   }
-  setMusic(r.phase === 'fallen' ? 'defeat' : 'battle');
+  setMusic(r.phase === 'fallen' ? 'defeat' : battle!.foe.chapter ? r.wave===32?'final':'chapter' : 'battle');
   el.hidden = r.phase === 'fight' || r.phase === 'clear';
   el.className = 'outcome';
   if (el.hidden) { el.innerHTML = ''; return; }
@@ -509,6 +547,17 @@ function battleEvent(event: BattleEvent): void {
       break;
     case 'intent':
       break;
+    case 'interrupt':
+      void playSound('seal');
+      pop('INTERRUPTED',SEALS[event.strike].color,'seal-float');
+      break;
+    case 'chapter-phase': {
+      toast('Phase '+(event.phase+1)+' · '+chapterInfo(current().wave).phases[event.phase]);
+      const stage=find('battle-art');
+      stage.classList.remove('chapter-shift');
+      if(!reduced.matches){void stage.offsetWidth;stage.classList.add('chapter-shift');}
+      break;
+    }
     case 'enemy-heal':
       void playSound('heal');
       if (!reduced.matches) effects?.add(event.drain ? 'drain' : 'enemy-heal');
@@ -1000,6 +1049,7 @@ app.addEventListener('click', event => {
   if (action !== 'title-sound') void unlockAudio().then(renderTitleSound);
   switch (action) {
     case 'story-next': advanceStory(); break;
+    case 'chapter-begin': chapterBegin(); break;
     case 'install': void installGame(); break;
     case 'title': title(); break;
     case 'title-sound': void toggleTitleSound(); break;
@@ -1124,7 +1174,8 @@ window.addEventListener('pagehide', () => { if (battle) save(); });
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
-  if (screen !== 'arena' || !battle || dialogKind || document.hidden) { lastFrame = 0; return; }
+  if (screen !== 'arena' || !battle || dialogKind || document.hidden) { lastFrame = chapterFrame = 0; return; }
+  if (battle.run.chapterIntro) {lastFrame=0;chapterEntrance(now);return;}
   if (battle.run.journey.pending !== null) {lastFrame=0; roadView(); return;}
   if (lastFrame && (battle.run.phase === 'fight' || battle.run.phase === 'clear')) {
     const elapsed = (now - lastFrame) / 1000;

@@ -1,3 +1,4 @@
+import {chapterBoss,chapterEndurance,chapterInfo} from './chapters.ts';
 export const WAVE_COUNT = 32;
 export const ENCOUNTER_COUNT = 32;
 export const STAT_NAMES = {
@@ -132,7 +133,7 @@ const ASPECTS = ['Gloam', 'Cinder', 'Rime', 'Viridian', 'Astral', 'Sable', 'Ivor
 const REGULAR_SEALS: Strike[] = ['ember', 'rime', 'storm', 'steel'];
 export interface Enemy {
   name: string; hp: number; atk: number; def: number; res: number; spd: number;
-  arcane: boolean; boss: boolean; xp: number; gold: number; art: string;
+  arcane: boolean; boss: boolean; chapter?: boolean; xp: number; gold: number; art: string;
   moves: readonly EnemyMove[]; healLimit: number;
   hue: number; seals: readonly Strike[]; essence: number;
   affinity?: {resists: Strike; weak: Strike; immune: boolean};
@@ -151,7 +152,8 @@ export function encounter(wave: number, step: number): Enemy {
   const swift = kind === 'swift';
   const first = wave === 1 && step <= 5;
   const regularSeal = wave === 1 ? 'ember' : REGULAR_SEALS[(wave + (step === 24 ? 2 : 0)) % 4]!;
-  const phaseCount = wave === 32 ? 5 : wave >= 24 ? 4 : wave >= 12 ? 3 : wave >= 5 ? 2 : 1;
+  const chapter = boss && chapterBoss(wave);
+  const phaseCount = chapter ? chapterInfo(wave).phases.length : wave === 32 ? 5 : wave >= 24 ? 4 : wave >= 12 ? 3 : wave >= 5 ? 2 : 1;
   const baseIndex = REGULAR_SEALS.indexOf(seal);
   const seals: readonly Strike[] = boss ? Array.from({length: phaseCount}, (_, i) => REGULAR_SEALS[(baseIndex + i) % 4]!) : elite ? [regularSeal] : [];
   const spellMoves: EnemyMove[] = wave < 3 ? ['ember'] : ['ember', 'rime', 'storm'];
@@ -175,13 +177,13 @@ export function encounter(wave: number, step: number): Enemy {
   const openingBoost = step <= 2 ? 0 : Math.max(0, 1 - (wave - 1) / 8) * (guard ? 0.22 : swift ? 0 : 0.14);
   return {
     name: boss ? bossName : arrival?.name ?? (wave === 1 && step < 12 ? name : ASPECTS[(wave + Math.floor(step / 8)) % 8] + ' ' + name),
-    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale * endurance),
+    hp: Math.round((boss ? 104 : (19 + 17 * position) * (guard ? 1.25 : 1) * (elite ? 1.45 : 1) * (1 + openingBoost) * (marked ? 1.14 : 1)) * scale * endurance * (chapter ? chapterEndurance(wave) : 1)),
     atk: (boss ? (38 + (wave % 4) * 3) * (wave < 5 ? 1 : wave < 9 ? 0.9 : 0.8) : (first ? 6.5 : 13.3 + 7.5 * position) * (swift ? 0.83 : 1)) * scale ** 1.05,
     def: (boss ? 13 * (.85 + (wave % 5) * .075) : (guard ? 12 : kind === 'hex' ? 3 : 6) * armorFactor * veteran) * scale ** .78,
     res: (boss ? 12 * (1.15 - (wave % 5) * .075) : (kind === 'hex' ? 14 : guard ? 4 : 8) * magicFactor * veteran) * scale ** .78,
     spd: (boss ? 1.14 + (wave % 5) * 0.13 : first ? 0.61 : swift ? 1.61 : guard ? 0.79 : 1.03) * (1 + (wave - 1) * 0.017),
     arcane: boss ? wave % 3 !== 1 : kind === 'hex',
-    boss, xp: Math.round((boss ? 155 : 13 + 14 * position + (elite ? 14 : 0)) * scale ** 0.96),
+    boss, chapter, xp: Math.round((boss ? 155 : 13 + 14 * position + (elite ? 14 : 0)) * scale ** 0.96),
     gold: Math.round((boss ? 130 : 7 + 6 * position + (elite ? 10 : 0)) * scale ** 0.87),
     art: boss ? 'boss-' + wave : arrival?.art ?? 'foe-' + (family + 1),
     hue: boss || (wave === 1 && step < 13) ? 0 : arrival?.hue ?? ((wave - 1) * 39 + Math.floor(step / 7) * 29) % 360,

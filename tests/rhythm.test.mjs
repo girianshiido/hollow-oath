@@ -18,7 +18,7 @@ test('Specials still pause enemy attacks during preparation while the player kee
  b.tick(1);assert.equal(r.intent,'heavy');assert.equal(r.castWait,1);
  const hp=r.hp;b.tick(.9);assert.equal(r.hp,hp);assert.ok(events.some(e=>e.type==='hit'));
  b.tick(.1);assert.ok(events.some(e=>e.type==='hurt'&&e.move==='heavy'));assert.equal(r.intent,null);
- assert.equal(enemyPreparation(encounter(12,32),'storm'),1.8);
+ assert.equal(enemyPreparation(encounter(11,32),'storm'),1.8);
 });
 test('Wave 12 at level 53 with rank-12 gear lets almost all ordinary enemies retaliate for every class',()=>{
  for(const hero of HERO_IDS){

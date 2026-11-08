@@ -1,0 +1,15 @@
+import type {EnemyMove,Strike} from './content.ts';
+export function chapterBoss(wave:number,step=32): boolean {return step===32 && wave%4===0;}
+export function chapterEndurance(wave:number): number {return [10,8.4,6.8,6.2,5.6,5,4.6,4.6][wave/4-1]!;}
+export const CHAPTER_ENCOUNTERS = [
+  {title:'BENEATH THE TIDE',line:'What sank with the kingdom still holds the shore.',phases:['The Anchor Holds','The Undertow Rises','Breakwater'],moves:[['steel','heavy','rime'],['rime','steel','drain'],['heavy','storm','steel']]},
+  {title:'THE CAPTIVE MOON',line:'The moon turns. The promise does not end.',phases:['Clockwork Vigil','The Lunar Current','A Gear Out of Place','Eclipse Engine'],moves:[['steel','storm','heavy'],['storm','rime','steel'],['mend','heavy','steel'],['heavy','storm','drain']]},
+  {title:'THE BELL REMEMBERS',line:'Listen for the names beneath the iron.',phases:['The First Toll','Voices in the Water','The Buried Name','The Final Peal'],moves:[['steel','heavy','rime'],['rime','drain','steel'],['mend','ember','steel'],['heavy','storm','steel']]},
+  {title:'THE GILDED PRISON',line:'Even a saint can become a locked door.',phases:['The Iron Casket','A Hand Behind the Seal','The Unbroken Watch','The Open Door'],moves:[['steel','heavy','ember'],['ember','mend','steel'],['drain','rime','steel'],['heavy','storm','steel']]},
+  {title:'BEFORE THE HOLLOW',line:'A crown remembers the hands that raised it.',phases:['The Royal Burden','Moonglass Splinters','The Refugees’ Road','A Promise Renewed','The Last Witness'],moves:[['steel','ember','heavy'],['storm','rime','steel'],['drain','heavy','steel'],['mend','ember','steel'],['heavy','storm','drain']]},
+  {title:'THE WHEEL OF YEARS',line:'Another turn. Another borrowed dawn.',phases:['The First Renewal','The Weight of Years','The Empty Procession','The Wheel Turns Back','A Generation Released'],moves:[['steel','heavy','storm'],['drain','ember','steel'],['rime','mend','steel'],['heavy','drain','steel'],['storm','heavy','ember']]},
+  {title:'THE HAND ABOVE THE THRONE',line:'Follow the strings to the hand that holds them.',phases:['The Patient Strings','The Borrowed Gesture','A Shadow Pulls Back','The Empty Hand','Cut the Last Thread'],moves:[['steel','rime','heavy'],['ember','drain','steel'],['mend','storm','steel'],['heavy','rime','drain'],['storm','heavy','steel']]},
+  {title:'THE OATH’S LAST VOICE',line:'The crown is listening for another name.',phases:['The Crown Commands','The Captive King','Thirty-Two Voices','A Promise in Full','The First Dawn'],moves:[['steel','heavy','ember'],['rime','drain','steel'],['storm','mend','heavy'],['drain','ember','heavy'],['storm','heavy','rime']]}
+] as const satisfies readonly {title:string;line:string;phases:readonly string[];moves:readonly (readonly EnemyMove[])[]}[];
+export function chapterInfo(wave:number){return CHAPTER_ENCOUNTERS[wave/4-1]!;}
+export const CHAPTER_COUNTER: Partial<Record<EnemyMove,Strike>> = {heavy:'rime',ember:'rime',rime:'ember',storm:'storm',drain:'ember',mend:'steel'};

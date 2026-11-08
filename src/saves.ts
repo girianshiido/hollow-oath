@@ -2,11 +2,12 @@ import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle
 import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, ENEMY_MOVES, aegisProtection, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 import {newJourney, validJourney} from './journey.ts';
+import {chapterBoss} from './chapters.ts';
 
 const PREFIX = 'hollow-oath.slot.';
 const HISTORY = 'hollow-oath.chronicle.';
 const validRunId = (id: unknown): id is string => typeof id === 'string' && /^(?:run-[a-z0-9-]{7,32}|legacy-[a-z0-9]{2,14})$/.test(id);
-export interface Save { version: 7; updated: number; run: Run }
+export interface Save { version: 8; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
@@ -26,8 +27,8 @@ function legacyRunId(run: Run): string {
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4, 5, 6, 7].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 7, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5, 6, 7, 8].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 8, updated: raw.updated, run: raw.run};
     const r = data.run;
     let retiredMastery = 0;
     if (r && raw.version < 6) r.runId = legacyRunId(r);
@@ -57,6 +58,22 @@ export function decode(text: string): Save | null {
       !Array.isArray(r.inventory) || r.inventory.length > WAVE_COUNT * 12 || !r.equipped ||
       typeof r.equipped !== 'object' || Array.isArray(r.equipped)) return null;
     if (!validRunId(r.runId)) return null;
+    if(raw.version<8) {
+      r.chapterIntro=false;
+      if(chapterBoss(r.wave,r.step)) {
+        const priorHp=Math.round(104*(1+.44*(r.wave-1)**1.32)),foe=encounter(r.wave,r.step);
+        if(!numeric(r.foeHp,0,priorHp,true) || !numeric(r.enemyRecovery,0,Math.floor(priorHp*.18),true))return null;
+        const fraction=r.foeHp/priorHp,priorCount=r.wave===32?5:r.wave>=24?4:r.wave>=12?3:r.wave>=5?2:1;
+        if(!numeric(r.broken,0,priorCount,true))return null;
+        const priorStage=Math.min(priorCount-1,Math.floor((1-fraction)*priorCount));
+        const nextStage=Math.min(foe.seals.length-1,Math.floor((1-fraction)*foe.seals.length));
+        r.foeHp=Math.round(foe.hp*fraction);
+        if(fraction>0)r.foeHp=Math.max(1,r.foeHp);
+        r.broken=fraction===0?foe.seals.length:Math.min(foe.seals.length,nextStage+(r.broken>priorStage?1:0));
+        r.enemyRecovery=Math.min(Math.floor(foe.hp*.18),Math.round(r.enemyRecovery*foe.hp/priorHp));
+      }
+    }
+    if(typeof r.chapterIntro!=='boolean' || (r.chapterIntro && (!chapterBoss(r.wave,r.step) || r.phase!=='fight' || r.foeHp!==encounter(r.wave,r.step).hp || r.broken!==0 || r.playerGauge!==0 || r.enemyGauge!==0 || r.intent!==null)))return null;
     const name = r.name === undefined ? '' : normalizeCharacterName(r.name);
     if (name === null) return null;
     r.name = name || HEROES[r.hero].defaultName;
@@ -77,7 +94,7 @@ export function decode(text: string): Save | null {
       Array.isArray(r.spellRanks) || !numeric(r.ward, 0, 8, true) || !numeric(r.wardRank, 1, 10, true) ||
       !numeric(r.enemyTurns, 0, Number.MAX_SAFE_INTEGER, true) || !numeric(r.enemyHeals, 0, 2, true) ||
       !numeric(r.enemyRecovery, 0, Math.floor(encounter(r.wave, r.step).hp * .18), true) ||
-      !(r.intent === null || Object.hasOwn(ENEMY_MOVES, r.intent)) || !numeric(r.castWait, 0, 2.400001) ||
+      !(r.intent === null || Object.hasOwn(ENEMY_MOVES, r.intent)) || !numeric(r.castWait, 0, chapterBoss(r.wave,r.step)?3.600001:2.400001) ||
       !numeric(r.castDelay, 0, .600001) || (r.intent === null && r.castWait > 0)) return null;
     const claims = new Set<number>();
     let earned = 0;
@@ -225,5 +242,5 @@ export function deleteSlot(id: string): boolean {
   catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 7, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 8, updated: Date.now(), run} satisfies Save);
 }
