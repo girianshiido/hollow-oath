@@ -25,7 +25,7 @@ export function newChronicle(activeSeconds: number | null = 0): Chronicle {
     cleanWaves: 0, cleanStreak: 0, bestCleanStreak: 0, immuneHits: 0, waveFallen: false,
     gearFreeAttempt: true, spellFreeAttempt: true, clearedGearFree: false, clearedSpellFree: false, nearDeathClear: false,
     finished: false, activeSeconds, legacyMastery: 0,
-    spellUses: { ember: 0, mend: 0, rime: 0, storm: 0, aegis: 0, verdict: 0 }
+    spellUses: { ember: 0, mend: 0, rime: 0, storm: 0, aegis: 0, haste: 0, surge: 0, fury: 0, verdict: 0 }
   };
 }
 
@@ -130,6 +130,9 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   metric('Magic', 'storm-50', 'Storm Caller', 'Cast Storm Sigil 50 times.', 50, p => p.spells.storm),
   metric('Magic', 'mend-50', 'Mender of Wounds', 'Cast Mend 50 times.', 50, p => p.spells.mend),
   metric('Magic', 'aegis-25', 'Shelter in the Storm', 'Cast Aegis 25 times.', 25, p => p.spells.aegis),
+  metric('Magic', 'haste-25', 'Borrowed Seconds', 'Cast Haste 25 times.', 25, p => p.spells.haste),
+  metric('Magic', 'surge-25', 'Beyond the Formula', 'Cast Arcane Surge 25 times.', 25, p => p.spells.surge),
+  metric('Magic', 'fury-25', 'Steel Remembers', 'Cast Battle Fury 25 times.', 25, p => p.spells.fury),
   metric('Magic', 'verdict-25', 'Thunder’s Judgment', 'Cast lightning spells 25 times.', 25, p => p.spells.storm + p.spells.verdict),
   metric('Magic', 'seal-16', 'Sealbreaker', 'Break 16 enemy seals.', 16, p => p.totals.seals),
   metric('Magic', 'essence-30', 'Essence Keeper', 'Collect 30 Arcane Essence in total.', 30,
@@ -160,6 +163,6 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
     p => p.best.nearDeath),
   metric('Oddities', 'immune-25', 'Talking to a Wall', 'Strike an immune foe 25 times in total.', 25,
     p => p.totals.immuneHits),
-  metric('Oddities', 'all-spells', 'One of Everything', 'Cast all five spells at least once.', 5,
+  metric('Oddities', 'all-spells', 'One of Everything', 'Cast five different spells at least once.', 5,
     p => SPELL_IDS.filter(id => p.spells[id] > 0).length)
 ];

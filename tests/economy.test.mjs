@@ -22,12 +22,13 @@ test('Repeat victories keep earning Essence past 192, survive retries and export
  const before=r.essence;while(buySpell(r,'ember')){}
  assert.equal(knownRank(r,'ember'),10);assert.equal(before-r.essence,107);assert.equal(r.essenceEarned,250);assert.ok(decode(serialize(r)));
 });
-test('Level n+1 always costs more Essence and MP, can be bought in any wave, and leaves lower levels unavailable',()=>{
- for(const hero of HERO_IDS){const r=newRun(hero);r.level=30;r.phase='fallen';r.hp=0;r.essence=r.essenceEarned=1000;
-  for(const id of SPELL_IDS){let previous=0;for(let n=id==='aegis'?0:1;n<MAX_SPELL_RANK;n++){
-    const price=workshopPrice(r,id);assert.ok(price>0);if(n>=2)assert.ok(price>previous);previous=price;const cost=n?spellCost(id,n):0;
-    assert.ok(buySpell(r,id));assert.equal(knownRank(r,id),n+1);assert.ok(spellCost(id,n+1)>cost);
-   }assert.equal(workshopPrice(r,id),undefined);assert.equal(buySpell(r,id),false);}
+test('Level n+1 always costs more Essence and MP for every core spell and chosen power',()=>{
+ for(const hero of HERO_IDS)for(const support of ['aegis','haste','surge','fury']){
+  const r=newRun(hero);Object.assign(r,{wave:5,level:30,phase:'fallen',hp:0,support,spellRanks:{[support]:1},essence:1000,essenceEarned:1000});
+  for(const id of ['ember','mend','rime','storm',support]){let previous=0;for(let n=1;n<MAX_SPELL_RANK;n++){
+   const price=workshopPrice(r,id);assert.ok(price>previous);previous=price;const cost=spellCost(id,n);
+   assert.ok(buySpell(r,id));assert.equal(knownRank(r,id),n+1);assert.ok(spellCost(id,n+1)>cost);
+  }assert.equal(workshopPrice(r,id),undefined);assert.equal(buySpell(r,id),false);}
  }
  assert.equal(spellUpgradeCost(0),undefined);assert.equal(spellUpgradeCost(10),undefined);
  const locked=newRun('vanguard');locked.phase='fallen';locked.hp=0;locked.essence=100;assert.equal(buySpell(locked,'storm'),false);
@@ -39,7 +40,7 @@ test('Guardians award three Essence again while ordinary unmarked monsters still
 });
 test('Version-eight saves preserve old cheap upgrades, currency and equipment with no retroactive charges',()=>{
  for(const hero of HERO_IDS){const r=newRun(hero);Object.assign(r,{wave:13,level:53,gold:6217,essence:40,essenceClaims:Array.from({length:12},(_,i)=>(i+1)*32).concat([7,19,27,39]),spellRanks:{ember:10,mend:7,aegis:8},wait:1,foeHp:encounter(13,1).hp});r.inventory=[{slot:'weapon',tier:12,relic:false}];r.equipped.weapon=gearId(r.inventory[0]);r.chronicle.gearFreeAttempt=false;r.hp=stats(r).hp;r.mp=stats(r).mp;delete r.essenceEarned;
-  const save=decode(JSON.stringify({version:8,updated:1,run:r}));assert.ok(save);assert.equal(save.version,9);assert.equal(save.run.essence,40);assert.equal(save.run.essenceEarned,40);assert.equal(save.run.gold,6217);assert.deepEqual(save.run.spellRanks,r.spellRanks);assert.deepEqual(save.run.inventory,r.inventory);assert.equal(save.run.runId,r.runId);assert.equal(purchasePrice(save.run,{slot:'weapon',tier:13,relic:false}),3721);assert.deepEqual(decode(serialize(save.run)).run,save.run);
+  const save=decode(JSON.stringify({version:8,updated:1,run:r}));assert.ok(save);assert.equal(save.version,10);assert.equal(save.run.essence,45);assert.equal(save.run.essenceEarned,45);assert.equal(save.run.gold,6217);assert.deepEqual(save.run.spellRanks,r.spellRanks);assert.deepEqual(save.run.inventory,r.inventory);assert.equal(save.run.runId,r.runId);assert.equal(purchasePrice(save.run,{slot:'weapon',tier:13,relic:false}),3721);assert.deepEqual(decode(serialize(save.run)).run,save.run);
  }
 });
 test('Forged, missing or unsafe Essence counters are rejected while large valid balances round-trip',()=>{

@@ -1,5 +1,5 @@
 import { BEST_KEYS, CHRONICLE_COUNTERS, emptyProfile, mergeProfile, newChronicle, profileFromRun, TOTAL_KEYS, type AchievementProfile } from './achievements.ts';
-import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, ENEMY_MOVES, aegisProtection, normalizeCharacterName, SPELL_IDS, SPELLS, WAVE_COUNT, xpGoal } from './content.ts';
+import { encounter, ENCOUNTER_COUNT, GEAR_SLOTS, gearId, HEROES, HERO_IDS, MAX_SPELL_RANK, ENEMY_MOVES, aegisProtection, normalizeCharacterName, SPELL_IDS, SPELLS, SUPPORT_IDS, isSupport, enchantmentEffect, WAVE_COUNT, xpGoal } from './content.ts';
 import { knownRank, stats, type Run } from './engine.ts';
 import {newJourney, validJourney} from './journey.ts';
 import {chapterBoss} from './chapters.ts';
@@ -7,7 +7,7 @@ import {chapterBoss} from './chapters.ts';
 const PREFIX = 'hollow-oath.slot.';
 const HISTORY = 'hollow-oath.chronicle.';
 const validRunId = (id: unknown): id is string => typeof id === 'string' && /^(?:run-[a-z0-9-]{7,32}|legacy-[a-z0-9]{2,14})$/.test(id);
-export interface Save { version: 9; updated: number; run: Run }
+export interface Save { version: 10; updated: number; run: Run }
 const numeric = (x: unknown, min: number, max: number, integer = false): x is number =>
   typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max && (!integer || Number.isSafeInteger(x));
 
@@ -27,8 +27,8 @@ function legacyRunId(run: Run): string {
 export function decode(text: string): Save | null {
   try {
     const raw = JSON.parse(text) as {version: number; updated: number; run: Run & {castRank?: unknown}};
-    if (!raw || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
-    const data: Save = {version: 9, updated: raw.updated, run: raw.run};
+    if (!raw || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(raw.version) || !numeric(raw.updated, 0, 8.64e15)) return null;
+    const data: Save = {version: 10, updated: raw.updated, run: raw.run};
     const r = data.run;
     let retiredMastery = 0;
     if (r && raw.version < 6) r.runId = legacyRunId(r);
@@ -79,6 +79,23 @@ export function decode(text: string): Save | null {
     r.name = name || HEROES[r.hero].defaultName;
     if (r.journalRead === undefined) r.journalRead = 0;
     if (!numeric(r.journalRead, 0, 255, true)) return null;
+    if (raw.version < 10) {
+      r.support = null;
+      r.empower = null;
+      r.chapterSeen = (1 << Math.floor((r.wave - 1) / 4)) - 1;
+      r.interlude = r.phase === 'clear' && r.wave % 4 === 0 ? r.wave : null;
+      if (r.phase === 'victory') r.chapterSeen = 255;
+      r.ward = 0;
+      if (isSupport(r.spell)) { r.spell = 'ember'; r.mode = 'steel'; }
+    }
+    const completed = r.phase === 'clear' || r.phase === 'victory' ? r.wave : r.wave - 1;
+    const chapterMask = (1 << Math.floor(completed / 4)) - 1;
+    if (!numeric(r.chapterSeen, 0, 255, true) || (r.chapterSeen & ~chapterMask) ||
+      !(r.support === null || SUPPORT_IDS.includes(r.support)) ||
+      (r.support !== null && r.wave < 5 && !(r.wave === 4 && r.phase === 'clear')) ||
+      !(r.interlude === null || (numeric(r.interlude, 4, 28, true) && r.interlude % 4 === 0 && r.interlude === r.wave && r.phase === 'clear' && !(r.chapterSeen & (1 << (r.wave / 4 - 1)))))) return null;
+    if (r.empower !== null && (!r.empower || r.support === null || r.support === 'aegis' ||
+      !numeric(r.empower.rank, 1, 10, true) || !numeric(r.empower.left, 1, enchantmentEffect(r.support, r.empower.rank).charges, true))) return null;
     if (r.journey === undefined) r.journey = newJourney((r.wave - 1) * 32 + r.step);
     if (!validJourney(r)) return null;
     if (raw.version === 1) {
@@ -113,6 +130,13 @@ export function decode(text: string): Save | null {
     for (const [id, rank] of Object.entries(r.spellRanks)) {
       if (!Object.hasOwn(SPELLS, id) || !numeric(rank, 1, MAX_SPELL_RANK, true) ||
         SPELLS[id as keyof typeof SPELLS].level > r.level) return null;
+      if (isSupport(id as keyof typeof SPELLS) && id !== r.support && !(r.support === null && id === 'aegis')) return null;
+    }
+    if ((r.support && !r.spellRanks[r.support]) || (r.empower && r.empower.rank > knownRank(r, r.support!)) || (r.ward > 0 && r.support !== 'aegis')) return null;
+    // Old Aegis ranks are held until the permanent choice; its former learning fee is refunded once.
+    if (raw.version < 10 && r.spellRanks.aegis) {
+      r.essence = Math.min(Number.MAX_SAFE_INTEGER, r.essence + 5);
+      r.essenceEarned = Math.min(Number.MAX_SAFE_INTEGER, r.essenceEarned + 5);
     }
     if (!knownRank(r, r.spell)) return null;
     delete raw.run.castRank;
@@ -130,6 +154,7 @@ export function decode(text: string): Save | null {
     const clock = r.chronicle;
     if (clock) clock.legacyMastery = Math.max(clock.legacyMastery ?? 0, retiredMastery);
     if (clock?.spellUses && clock.spellUses.verdict === undefined) clock.spellUses.verdict = 0;
+    if (raw.version < 10 && clock?.spellUses) for (const id of ['haste', 'surge', 'fury'] as const) clock.spellUses[id] = 0;
     if (raw.version < 5 && clock) {
       clock.gearFreeAttempt = clock.spellFreeAttempt = false;
       clock.clearedGearFree = clock.clearedSpellFree = clock.nearDeathClear = false;
@@ -192,6 +217,7 @@ function readHistory(id: string): AchievementProfile | null {
   try {
     const p = JSON.parse(localStorage.getItem(HISTORY + id) ?? 'null') as AchievementProfile | null;
     if (p?.spells && p.spells.verdict === undefined) p.spells.verdict = 0;
+    if (p?.spells) for (const id of ['haste', 'surge', 'fury'] as const) if (p.spells[id] === undefined) p.spells[id] = 0;
     const count = (value: unknown) => numeric(value, 0, Number.MAX_SAFE_INTEGER, true);
     if (!p || !p.totals || !p.best || !p.spells ||
       !TOTAL_KEYS.every(key => count(p.totals[key])) || !BEST_KEYS.every(key => count(p.best[key])) ||
@@ -246,5 +272,5 @@ export function deleteSlot(id: string): boolean {
   catch { return false; }
 }
 export function serialize(run: Run): string {
-  return JSON.stringify({version: 9, updated: Date.now(), run} satisfies Save);
+  return JSON.stringify({version: 10, updated: Date.now(), run} satisfies Save);
 }

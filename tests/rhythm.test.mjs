@@ -4,7 +4,7 @@ import {encounter,HERO_IDS} from '../src/content.ts';
 import {Battle,newRun,stats,enemyPreparation} from '../src/engine.ts';
 import {decode,serialize} from '../src/saves.ts';
 import {benchmark} from '../scripts/benchmark-encounters.mjs';
-function setup(){const r=newRun('vanguard');Object.assign(r,{wave:12,step:1,level:53,foeHp:encounter(12,1).hp,wait:0});r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
+function setup(){const r=newRun('vanguard');Object.assign(r,{wave:12,step:1,level:53,foeHp:encounter(12,1).hp,wait:0});r.support='aegis';r.spellRanks.aegis=1;r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
 test('Routine enemy spells resolve on the Speed clock without an additional Gathering turn',()=>{
  for(const move of ['ember','rime','storm']){
   const r=setup(),events=[],b=new Battle(r,e=>events.push(e));b.foe.moves=[move];b.foe.spd=1;b.player.spd=.001;

@@ -7,7 +7,8 @@ export function chapterTrial(hero,wave,policy='tactical') {
  r.inventory=GEAR_SLOTS.map(slot=>({slot,tier:wave,relic:false}));r.equipped=Object.fromEntries(r.inventory.map(g=>[g.slot,gearId(g)]));r.chronicle.gearFreeAttempt=false;
  // Evenly spend the first-clear Essence budget; this is a fixture, not a wave gate.
  let rank=1,budget=Math.floor((wave*6-5)/5);while(rank<10&&budget>=spellUpgradeCost(rank)){budget-=spellUpgradeCost(rank);rank++;}
- r.spellRanks=Object.fromEntries(['ember','mend','rime','storm','aegis'].map(id=>[id,rank]));
+ r.spellRanks=Object.fromEntries(['ember','mend','rime','storm'].map(id=>[id,rank]));
+ if(wave>=5){r.support='aegis';r.spellRanks.aegis=rank;}
  r.hp=stats(r).hp;r.mp=stats(r).mp;r.foeHp=encounter(wave,32).hp;
  let interrupted=0,incoming=0,changes=0,t=0;
  const b=new Battle(r,e=>{if(e.type==='interrupt')interrupted++;if(e.type==='hurt')incoming++;if(e.type==='chapter-phase')changes++;},()=>.5);

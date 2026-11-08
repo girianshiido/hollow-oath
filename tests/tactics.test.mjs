@@ -3,14 +3,14 @@ import {aegisProtection, encounter, HERO_IDS, MAX_SPELL_RANK, SPELL_IDS, spellCo
 import {activeSeal, Battle, buySpell, enemyAffinity, newRun, sealFloor, stats, workshopPrice} from '../src/engine.ts';
 import {profileFromRun} from '../src/achievements.ts';
 import {decode, serialize} from '../src/saves.ts';
-function setup(hero='vanguard',wave=15,step=32){const r=newRun(hero);Object.assign(r,{wave,step,level:40,wait:0,foeHp:encounter(wave,step).hp});r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
+function setup(hero='vanguard',wave=15,step=32){const r=newRun(hero);Object.assign(r,{wave,step,level:40,wait:0,foeHp:encounter(wave,step).hp});if(wave>=5){r.support='aegis';r.spellRanks.aegis=1;}r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
 test('Magic upgrades have increasing costs and no wave gate, with an earned-Essence budget',()=>{
- assert.deepEqual(SPELL_IDS,['ember','mend','rime','storm','aegis']);
+ assert.deepEqual(SPELL_IDS,['ember','mend','rime','storm','aegis','haste','surge','fury']);
  const costs=Array.from({length:MAX_SPELL_RANK-1},(_,i)=>spellUpgradeCost(i+1));
  assert.ok(costs.every((cost,i)=>cost>0&&(!i||cost>costs[i-1])));
- const r=setup();r.wave=1;r.phase='fallen';r.hp=0;r.essence=r.essenceEarned=1000;
- for(const id of SPELL_IDS){while(buySpell(r,id)){}assert.equal(r.spellRanks[id],MAX_SPELL_RANK);assert.equal(workshopPrice(r,id),undefined);}
- assert.equal(1000-r.essence,costs.reduce((a,b)=>a+b,0)*5+5);
+ const r=setup();r.phase='fallen';r.hp=0;r.essence=r.essenceEarned=1000;
+ for(const id of ['ember','mend','rime','storm','aegis']){while(buySpell(r,id)){}assert.equal(r.spellRanks[id],MAX_SPELL_RANK);assert.equal(workshopPrice(r,id),undefined);}
+ assert.equal(1000-r.essence,costs.reduce((a,b)=>a+b,0)*5);
  assert.ok(costs.reduce((a,b)=>a+b,0)>32*3,'A maximum spell level should require substantial Essence');
  assert.ok(spellCost('ember',10)>spellCost('ember',3));
 });
@@ -74,10 +74,10 @@ test('Legacy Verdict purchases are refunded once, counts survive and a partially
  const r=setup('hexweaver',32,32);r.essenceClaims=Array.from({length:31},(_,i)=>(i+1)*32);r.essence=10;
  r.spell='verdict';r.spellRanks={verdict:3,storm:2,aegis:3};r.chronicle.spellUses.verdict=42;r.ward=100;
  r.foeHp=Math.round(104*(1+.44*(r.wave-1)**1.32));const old={version:6,updated:Date.now(),run:r};const loaded=decode(JSON.stringify(old));assert.ok(loaded);
- assert.equal(loaded.version,9);assert.equal(loaded.run.essence,34);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
- assert.equal(profileFromRun(loaded.run).best.mastery,3);assert.equal(loaded.run.spellRanks.aegis,3);assert.equal(loaded.run.ward,5);
- assert.equal(decode(serialize(loaded.run)).run.essence,34);
- const current=loaded.run;current.intent='storm';current.castWait=1.234;current.castDelay=.4;current.enemyTurns=7;
+ assert.equal(loaded.version,10);assert.equal(loaded.run.essence,39);assert.equal(loaded.run.spell,'storm');assert.equal(loaded.run.spellRanks.verdict,undefined);assert.equal(loaded.run.chronicle.spellUses.verdict,42);
+ assert.equal(profileFromRun(loaded.run).best.mastery,3);assert.equal(loaded.run.spellRanks.aegis,3);assert.equal(loaded.run.ward,0);
+ assert.equal(decode(serialize(loaded.run)).run.essence,39);
+ const current=loaded.run;current.support='aegis';current.intent='storm';current.castWait=1.234;current.castDelay=.4;current.enemyTurns=7;
  const round=decode(serialize(current));assert.ok(round);assert.equal(round.run.castWait,1.234);assert.equal(round.run.enemyTurns,7);
  current.castWait=100;assert.equal(decode(serialize(current)),null);
  const onlyVerdict=structuredClone(old);onlyVerdict.run.spellRanks={verdict:3};onlyVerdict.run.ward=0;assert.equal(profileFromRun(decode(JSON.stringify(onlyVerdict)).run).best.mastery,3);

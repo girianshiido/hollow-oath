@@ -1,0 +1,15 @@
+{
+  "title": "Between the Names",
+  "bpm": 76,
+  "bars": 16,
+  "tracks": 5,
+  "notes": 200,
+  "samePitchOverlaps": 0,
+  "soundfont": "MuseScore_General_HQ.sf2",
+  "sampleRate": 48000,
+  "channels": 2,
+  "duration": 50.52633333333333,
+  "peakDb": -5.46217155456543,
+  "rmsDb": -20.594682693481445,
+  "loopSeamJump": 0.001836378127336502
+}

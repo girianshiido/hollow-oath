@@ -1,9 +1,9 @@
 import { HEROES, SEALS, type HeroId, type Strike } from './content.ts';
 
 type BladeVariant = 0 | 1 | 2;
-type Effect = {kind: Strike | 'heal' | 'hurt' | 'seal' | 'ward' | 'enemy-heal' | 'drain' | 'enemy-ember' | 'enemy-rime' | 'enemy-storm' | 'enemy-drain'; start: number; seeds: number[]; blade: BladeVariant};
+type Effect = {kind: Strike | 'haste' | 'surge' | 'fury' | 'heal' | 'hurt' | 'seal' | 'ward' | 'enemy-heal' | 'drain' | 'enemy-ember' | 'enemy-rime' | 'enemy-storm' | 'enemy-drain'; start: number; seeds: number[]; blade: BladeVariant};
 const COLORS: Record<Effect['kind'], string> = {
-  steel: '#ffe6ba', ember: '#ff924c', rime: '#9fe9ff', storm: '#d1adff',
+  steel: '#ffe6ba', ember: '#ff924c', rime: '#9fe9ff', storm: '#d1adff', haste: '#ffe1a0', surge: '#d4adff', fury: '#ffa58b',
   heal: '#9effc1', hurt: '#ff604d', seal: '#ffe4a3', ward: '#9fe6c0', 'enemy-heal': '#9effc1', drain: '#ed92bf', 'enemy-ember': '#ff924c', 'enemy-rime': '#9fe9ff', 'enemy-storm': '#d1adff', 'enemy-drain': '#ed92bf'
 };
 
@@ -151,6 +151,23 @@ export class Effects {
         ctx.beginPath(); ctx.moveTo(x - size * .09, py - size * .15);
         ctx.lineTo(x + size * .05, py - size * .07); ctx.lineTo(x - size * .04, py); ctx.lineTo(x, py + size * .08); ctx.stroke();
         ctx.beginPath(); ctx.arc(x, py, size * (.025 + t * .035), 0, Math.PI * 2); ctx.stroke();
+      } else if (e.kind === 'haste' || e.kind === 'surge' || e.kind === 'fury') {
+        ctx.translate(x, h * .72);
+        ctx.lineWidth = 2 * a; ctx.shadowColor = color; ctx.shadowBlur = 14;
+        for (let j = 0; j < 3; j++) {
+          ctx.beginPath();
+          if (e.kind === 'haste') {
+            const yy = (j - 1) * size * .10 - t * size * .14;
+            ctx.moveTo(-size * .12, yy + size * .06); ctx.lineTo(0, yy); ctx.lineTo(size * .12, yy + size * .06);
+          } else if (e.kind === 'surge') {
+            ctx.ellipse(0, 0, size * (.07 + j * .045 + t * .08), size * .06, t * 3 + j, 0, Math.PI * 2);
+          } else {
+            ctx.moveTo(-size * .15 + j * size * .07, size * .12);
+            ctx.lineTo(size * .02 + j * size * .07, -size * (.10 + t * .12));
+          }
+          ctx.stroke();
+        }
+        ctx.restore(); continue;
       } else if (e.kind === 'ward') {
         ctx.translate(x, h * .73); ctx.scale(size * .24, size * .24);
         ctx.lineWidth = .022; ctx.shadowColor = color; ctx.shadowBlur = 12;

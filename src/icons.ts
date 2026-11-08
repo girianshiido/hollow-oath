@@ -14,7 +14,10 @@ const paths: Record<string, string> = {
   storm:'<path d="m13 2-9 12h7l-1 8 10-13h-7l1-7Z"/>',
   mend:'<path d="M9 4h6v5h5v6h-5v5H9v-5H4V9h5Z"/>',
   lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v3"/>',
-  shield:'<path d="M12 2l8 4v6c0 5-4 8-8 10-4-2-8-5-8-10V6l8-4Zm0 5v10m-4-5h8"/>'
+  shield:'<path d="M12 2l8 4v6c0 5-4 8-8 10-4-2-8-5-8-10V6l8-4Zm0 5v10m-4-5h8"/>',
+  haste:'<path d="m3 7 6 5-6 5m7-10 6 5-6 5m7-10 5 5-5 5"/>',
+  surge:'<path d="m12 2 2.7 6.5L22 12l-7.3 3.5L12 22l-2.7-6.5L2 12l7.3-3.5L12 2Z"/><circle cx="12" cy="12" r="3"/>',
+  fury:'<path d="m4 19 9-9m-7 9 9-9m-5-4 8 8m-6-9 7-3-3 7M3 21l3-2m12-3 3 3m-3-7 4 1M9 3l1 4"/>'
 };
 export function icon(name: string): string {
   return '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' + (paths[name] ?? paths.mark) + '</svg>';

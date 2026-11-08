@@ -44,7 +44,11 @@ export function normalizeCharacterName(value: unknown): string | null {
 
 
 export type Strike = 'steel' | 'ember' | 'rime' | 'storm';
-export type SpellId = Exclude<Strike, 'steel'> | 'mend' | 'aegis';
+export type SupportId = 'aegis' | 'haste' | 'surge' | 'fury';
+export type SpellId = Exclude<Strike, 'steel'> | 'mend' | SupportId;
+export const CORE_SPELL_IDS = ['ember', 'mend', 'rime', 'storm'] as const;
+export const SUPPORT_IDS: readonly SupportId[] = ['aegis', 'haste', 'surge', 'fury'];
+export const isSupport = (id: SpellId): id is SupportId => SUPPORT_IDS.includes(id as SupportId);
 export const ELEMENT_NAMES: Record<Strike, string> = {steel: 'steel', ember: 'fire', rime: 'ice', storm: 'lightning'};
 interface Spell {
   name: string; level: number; cost: number; color: string; text: string;
@@ -55,13 +59,24 @@ export const SPELLS: Record<SpellId, Spell> = {
   mend: {name: 'Mend', level: 2, cost: 6, color: '#9effc1', text: 'Heals any missing HP. Returns to steel at full HP or insufficient MP.'},
   rime: {name: 'Rime Lance', level: 4, cost: 5, color: '#92e9ff', strike: 'rime', text: 'Pierces with ice and delays the next enemy strike. Quenches Cinder Seals.'},
   storm: {name: 'Storm Sigil', level: 7, cost: 7, color: '#d4adff', strike: 'storm', text: 'Strikes with lightning and pierces magic defense. Breaks Mirror Seals.'},
-  aegis: {name: 'Aegis', level: 3, cost: 8, color: '#9fe6c0', price: 5, text: 'Reduces physical and magic damage for several incoming attacks. Returns to steel after casting; charges survive spell changes.'}
+  aegis: {name: 'Aegis', level: 1, cost: 8, color: '#9fe6c0', text: 'Reduces physical and magic damage for several incoming attacks.'},
+  haste: {name: 'Haste', level: 1, cost: 9, color: '#ffe1a0', text: 'Increases Speed for your next actions. Enemy Speed is unchanged.'},
+  surge: {name: 'Arcane Surge', level: 1, cost: 10, color: '#d4adff', text: 'Empowers your next offensive spells. Each empowered spell costs extra MP. Does not strengthen Mend.'},
+  fury: {name: 'Battle Fury', level: 1, cost: 9, color: '#ffa58b', text: 'Empowers your next steel strikes. Does not strengthen spells.'}
 };
 export const SPELL_IDS = Object.keys(SPELLS) as SpellId[];
 export const MAX_SPELL_RANK = 10;
 export const spellCost = (id: SpellId, rank: number) => SPELLS[id].cost + Math.min(2, Math.max(0, rank - 1)) * 2 + Math.max(0, rank - 3);
 export const spellBoost = (rank: number) => 1 + Math.min(2, rank - 1) * .24 + Math.max(0, rank - 3) * .09;
 export const aegisProtection = (rank: number) => ({reduction: .30 + (Math.max(1, rank) - 1) / 9 * .15, charges: 5 + Math.floor((Math.max(1, rank) - 1) / 3)});
+export function enchantmentEffect(id: Exclude<SupportId, 'aegis'>, rank: number) {
+  const level = Math.max(1, Math.min(10, rank));
+  return {
+    multiplier: 1 + (id === 'haste' ? .35 + (level - 1) * .025 : id === 'surge' ? .45 + (level - 1) * .045 : .40 + (level - 1) * .04),
+    charges: (id === 'haste' ? 8 : id === 'surge' ? 4 : 5) + Math.floor((level - 1) / 3),
+    surcharge: id === 'surge' ? 2 + Math.floor((level - 1) / 4) : 0
+  };
+}
 // The price is for advancing from this learned level to the next one.
 export const SPELL_UPGRADE_PRICES = [4,5,6,8,10,13,16,20,25] as const;
 export const spellUpgradeCost = (rank: number): number | undefined => Number.isInteger(rank) ? SPELL_UPGRADE_PRICES[rank-1] : undefined;

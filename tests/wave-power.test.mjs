@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {encounter,gearId,gearPrice,HERO_IDS} from '../src/content.ts';
 import {Battle,newRun,equipGear,stats,wavePower,weaponRank,purchasePrice,buyGear} from '../src/engine.ts';
 import {decode,serialize} from '../src/saves.ts';
-function setup(hero='vanguard',wave=12,tier=12){const r=newRun(hero);Object.assign(r,{level:53,wave,wait:0,foeHp:encounter(wave,1).hp});const g={slot:'weapon',tier,relic:false};r.inventory.push(g);equipGear(r,g,'weapon');r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
+function setup(hero='vanguard',wave=12,tier=12){const r=newRun(hero);Object.assign(r,{level:53,wave,wait:0,foeHp:encounter(wave,1).hp});const g={slot:'weapon',tier,relic:false};r.inventory.push(g);equipGear(r,g,'weapon');if(wave>=5){r.support='aegis';r.spellRanks.aegis=1;}r.hp=stats(r).hp;r.mp=stats(r).mp;return r;}
 function hit(wave,mode){const r=setup('vanguard',wave,12);r.mode=mode;r.spell='ember';r.spellRanks.ember=3;let value;const b=new Battle(r,e=>{if(e.type==='hit')value=e.damage},()=>.5);b.foe.def=b.foe.res=100;b.foe.seals=[];b.foe.affinity=undefined;b.foe.hp=r.foeHp=99999;b.foe.spd=.001;b.player.spd=1;b.tick(1);return value;}
 test('The next wave halves offensive power at unchanged weapon rank for both steel and spells',()=>{
  for(const mode of ['steel','magic'])assert.ok(Math.abs(hit(12,mode)/2-hit(13,mode))<=1);

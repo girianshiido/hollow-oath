@@ -2,13 +2,14 @@ import { ACHIEVEMENTS, mergeProfile, profileFromRun } from '../src/achievements.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encounter, gearId, gearName, gearPrice, GEAR_SLOTS, HERO_IDS, SPELLS, WAVE_COUNT } from '../src/content.ts';
-import { activeSeal, finishChapterIntro, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats } from '../src/engine.ts';
+import { activeSeal, chooseSupport, finishInterlude, finishChapterIntro, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, preparedSpellCost, resumeWave, stats } from '../src/engine.ts';
 import { achievementHistory, decode, deleteSlot, listSlots, serialize, writeSlot } from '../src/saves.ts';
 import {resolveRoad} from '../src/journey.ts';
 
 function at(wave, step, level = 15) {
   const r = newRun('vanguard');
   Object.assign(r, { wave, step, level, wait: 0, foeHp: encounter(wave, step).hp });
+  if (wave >= 5) { r.support = 'aegis'; r.spellRanks.aegis = 1; }
   Object.assign(r, { hp: stats(r).hp, mp: stats(r).mp });
   return r;
 }
@@ -274,12 +275,12 @@ test('Upgrades immediately increase the prepared spell cost', () => {
   battle.tick(1.1);
   assert.equal(run.mode, 'steel');
   assert.ok(run.mp < 2);
-  run.level = 1;
+  run.support = null;
   assert.equal(knownRank(run, 'aegis'), 0);
 });
 
 test('Aegis reduces five incoming attacks and leaves turns available for steel', () => {
-  const run = at(1, 1, 15);
+  const run = at(5, 1, 15);
   Object.assign(run, {spell: 'aegis', mode: 'magic', spellRanks: {aegis: 1}});
   const events = [], battle = new Battle(run, e => events.push(e));
   battle.foe.hp = run.foeHp = 99999;
@@ -308,7 +309,7 @@ test('Version-one saves retain progress and receive Essence for cleared guardian
   const old = {...run};
   for (const key of ['ward','essence','essenceClaims','spellRanks']) delete old[key];
   const migrated = decode(JSON.stringify({version:1, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 9);
+  assert.equal(migrated?.version, 10);
   assert.equal(migrated.run.level, run.level);
   assert.equal(migrated.run.xp, run.xp);
   assert.equal(migrated.run.gold, run.gold);
@@ -325,9 +326,10 @@ test('A legacy choice of a lower casting rank is replaced by the learned maximum
   run.spellRanks.ember = 3;
   const old = {...run, castRank: 1};
   const migrated = decode(JSON.stringify({version:2, updated:Date.now(), run:old}));
-  assert.equal(migrated?.version, 9);
+  assert.equal(migrated?.version, 10);
   assert.equal(preparedSpellCost(migrated.run), 8);
   assert.equal('castRank' in migrated.run, false);
+  chooseSupport(migrated.run, 'aegis');
   migrated.run.mode = 'magic';
   migrated.run.mp = 4;
   const battle = new Battle(migrated.run, () => {});
@@ -442,6 +444,7 @@ test('Gear-free and spell-free waves track the full attempt and reset on a retry
   assert.equal(run.chronicle.clearedGearFree, false);
   assert.equal(run.chronicle.clearedSpellFree, true);
 
+  finishInterlude(run);
   run.phase = 'fallen';
   run.hp = 0;
   resumeWave(run);
@@ -487,7 +490,7 @@ test('Version-four saves retain achievements without inventing a full gear-free 
   const old = { ...run, foeHp:Math.round(104*(1+.44*(run.wave-1)**1.32)), chronicle:{...run.chronicle} };
   for (const key of ['gearFreeAttempt','spellFreeAttempt','clearedGearFree','clearedSpellFree','nearDeathClear','immuneHits']) delete old.chronicle[key];
   const migrated = decode(JSON.stringify({version:4, updated:Date.now(), run:old}));
-  assert.equal(migrated.version,9);
+  assert.equal(migrated.version,10);
   assert.equal(migrated.run.chronicle.hits,440);
   assert.equal(migrated.run.chronicle.activeSeconds,1200);
   const battle = new Battle(migrated.run, () => {});migrated.run.foeHp=1;migrated.run.broken=battle.foe.seals.length;

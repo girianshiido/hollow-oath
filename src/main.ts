@@ -11,9 +11,10 @@ import { installInstructions, renderInstall, requestInstall } from './install.ts
 import {
   CHARACTER_NAME_LIMIT, ELEMENT_NAMES, ENEMY_MOVES, aegisProtection, spellBoost, MAX_SPELL_RANK, encounter, gearBonus, gearId, gearName, GEAR_NAMES, GEAR_SLOTS,
   HEROES, HERO_IDS, normalizeCharacterName, SEALS, spellCost, SPELLS, SPELL_IDS, STAT_NAMES, WAVES, xpGoal,
+  CORE_SPELL_IDS, SUPPORT_IDS, isSupport, enchantmentEffect, type SupportId,
   type Gear, type GearSlot, type HeroId, type SpellId, type Stats
 } from './content.ts';
-import { activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, purchasePrice, weaponRank, wavePower, type BattleEvent, type Run } from './engine.ts';
+import { actionSpellCost, needsSupportChoice, chooseSupport, finishInterlude, activeSeal, enemyAffinity, enemyStage, nextEnemyMove, availableEssence, Battle, buyGear, buySpell, canShop, equipGear, knownRank, newRun, newRunId, preparedSpellCost, resumeWave, stats, workshopPrice, purchasePrice, weaponRank, wavePower, type BattleEvent, type Run } from './engine.ts';
 import { Effects, strikeColor } from './graphics.ts';
 import { icon } from './icons.ts';
 import {mountSpriteTest} from './sprite-test.ts';
@@ -63,6 +64,10 @@ let displayPhase = '';
 let rewardLine = '';
 let paceHint = '';
 let chapterKey='', chapterElapsed=0, chapterFrame=0, chapterReady=false;
+let interludeAt = 0;
+let supportPreview: SupportId | null = null;
+const combatSpells = (run: Run): SpellId[] => [...CORE_SPELL_IDS, ...(run.support ? [run.support] : [])];
+const spellIcon = (id: SpellId) => icon(id === 'aegis' ? 'shield' : id);
 const current = (): Run => battle!.run;
 
 function mount(name: string, body: string): void {
@@ -70,16 +75,18 @@ function mount(name: string, body: string): void {
   screen = name;
   if (name === 'prologue') setMusic('silent');
   else if (name === 'epilogue' || name === 'ending') setMusic('ending');
+  else if (name === 'interlude' || name === 'attunement') setMusic('interlude');
   else if (name !== 'arena') setMusic('title');
   effects?.dispose();
   effects = undefined;
   dialogKind = '';
-  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div><button id="journal-notice" hidden class="journal-notice" data-action="journal-new" aria-label="Read the new Chronicle entry"></button>';
+  app.innerHTML = body + '<dialog id="sheet" class="sheet" aria-labelledby="sheet-title"></dialog><div id="toast" class="toast" role="status"></div><div id="achievement-toast" class="toast achievement-toast" role="status"></div>';
   const dialog = find<HTMLDialogElement>('sheet');
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
     dialogKind = '';
     lastFrame = 0;
+    restoreSceneMusic();
     if (dialogOpener?.isConnected) dialogOpener.focus({preventScroll: true});
     dialogOpener = null;
   });
@@ -198,10 +205,20 @@ function slotScreen(): void {
   </main>`);
 }
 
+function restoreSceneMusic(): void {
+  if (screen === 'interlude' || screen === 'attunement') setMusic('interlude');
+  else if (screen === 'epilogue' || screen === 'ending') setMusic('ending');
+  else if (screen === 'prologue') setMusic('silent');
+  else if (screen === 'arena' && battle) setMusic(current().phase === 'fallen' ? 'defeat' : current().phase === 'clear' && battle.foe.chapter ? 'interlude' : battle.foe.chapter ? current().wave === 32 ? 'final' : 'chapter' : 'battle');
+  else setMusic('title');
+}
+
 function openDialog(kind: string, heading: string, body: string, kicker = 'HOLLOW OATH'): void {
   const dialog = find<HTMLDialogElement>('sheet');
   const journalNavigation = kind.startsWith('journal-') || dialogKind.startsWith('journal-') || kind.startsWith('road-') || dialogKind.startsWith('road-');
   dialogKind = kind;
+  if (kind.startsWith('journal-')) setMusic('interlude');
+  else if (journalNavigation) restoreSceneMusic();
   dialog.classList.toggle('journal-expanded', kind === 'journal-art');
   dialog.innerHTML = `<div class="sheet-inner"><header><div><p class="kicker">${kicker}</p><h2 id="sheet-title">${heading}</h2></div>
     <button class="round" data-action="close" aria-label="Close">${icon('close')}</button></header>${body}</div>`;
@@ -237,7 +254,8 @@ function close(): void {
 function help(): void {
   openDialog('help', 'The field guide', `<div class="guide">
     <p><strong>Auto combat.</strong> Both sides strike independently. Twice the Speed means twice the attack rate. Steel tests Defense. Sorcery tests Magic Defense. Attack damage varies by ±12%. Each weapon rank below the wave halves offensive power; a weapon at the current wave rank restores full power. This affects both steel and damaging spells, while Mend and Aegis keep their normal effects.</p>
-    <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. Aegis protects several incoming hits and returns to steel after casting.</p>
+    <p><strong>Six actions.</strong> Tap the sword or one of five spells to select automatic attacks. Hold a spell to pause and read its level, cost and effects. On a keyboard, keys 1–6 select actions; Shift+Enter on a spell opens details. Low MP returns you to steel. The fifth spell slot stays empty through wave 4. After Chapter I, permanently choose Aegis, Haste, Arcane Surge or Battle Fury for this adventure. Support spells cast once and return to steel; their charges remain when you change actions. Upgrade your chosen power at the Workshop after a defeat.</p>
+    <p><strong>The Chronicle.</strong> After each chapter guardian, an illustrated interlude pauses combat until you continue. Tap the chapter title and book at the top of the arena to reread unlocked entries. Reading never consumes buff charges or combat time.</p>
     <p><strong>Chapter guardians.</strong> Every fourth wave ends with a cinematic entrance, a dedicated score and three to five named phases. The entrance ends automatically or with Begin battle. Attack Speed stays unchanged. Special moves prepare for three seconds: the ↯ marker identifies the action that interrupts the preparation, even through a different seal. MP is still spent and normal damage still obeys the seal. The ! marker identifies the seal-breaking action. Save mana for changing phases, or use Aegis to soften a blow.</p>
     <p><strong>Affinities and seals.</strong> Enemies may resist an element, be immune to it or take extra damage from a weakness.  Read the prompt above a protected foe. A seal ignores mismatched attacks even if you outlevel the enemy. Bosses change seals and weaknesses as their HP falls, up to five phases. The matching action is marked with !. Dangerous enemy attacks have a visible preparation time; Aegis can soften them. Some bosses heal or drain life, with limited total recovery. Save your mana for the right strike.</p>
     <p><strong>Survive the wave.</strong> Each wave has 31 foes and a boss. HP carries between fights. Mend spends its full MP cost whenever any HP is missing. It returns to steel at full HP or insufficient MP and stays off until selected again. Mend and level gains can restore HP. Falling returns you to the first encounter of the current wave with full HP and MP, and you keep XP, gold and gear.</p>
@@ -277,13 +295,14 @@ function showStory(): void {
       <button class="secondary wide" data-action="story-next">${final ? storyEnding ? 'See the dawn' : 'Enter the Hollow' : 'Continue'} ${icon('next')}</button>
     </div>
   </main>`);
-  if (storyEnding && storyPage === 0 && !(storyRun!.journalRead & 128)) notifyJournal(32);
 }
 function advanceStory(): void {
   if (!storyRun || (screen !== 'prologue' && screen !== 'epilogue')) return;
   if (++storyPage < storyPages(storyRun, storyEnding).length) { showStory(); return; }
   const run = storyRun;
   if (!storyEnding) { storyRun = undefined; startArena(run); return; }
+  run.journalRead |= 128;
+  save();
   mount('ending', `<main class="ending-screen" tabindex="-1" aria-labelledby="ending-title" style="--hero-glow:${HEROES[run.hero].color}">
     <img class="ending-art" src="${art('ending-' + run.hero)}" alt="${escapeHtml(run.name)}, the ${HEROES[run.hero].name}, overlooking the saved kingdom at dawn">
     <div class="ending-shade" aria-hidden="true"></div>
@@ -294,7 +313,7 @@ function advanceStory(): void {
 }
 
 function startArena(run: Run, isNew = false): void {
-  chapterKey='';chapterElapsed=chapterFrame=0;chapterReady=false;
+  chapterKey='';chapterElapsed=chapterFrame=0;chapterReady=false;interludeAt=0;
   createSlot = isNew;
   battle = new Battle(run, battleEvent);
   history = achievementHistory(run.runId);
@@ -310,7 +329,7 @@ function startArena(run: Run, isNew = false): void {
     <div id="world" class="world" aria-hidden="true"></div>
     <header class="battle-head">
       <button class="round" data-action="gear" aria-label="Armory" title="Character and equipment">${icon('bag')}</button>
-      <div class="wave-title"><span class="kicker" id="wave-index"></span><strong id="wave-name"></strong></div>
+      <button class="wave-title" data-action="journal" aria-label="Open the Chronicle"><span class="kicker" id="wave-index"></span><strong id="wave-name"></strong><span class="chapter-book">${icon('book')} Chronicle</span></button>
       <button class="round" data-action="options" aria-label="Options" title="Options">${icon('dots')}</button>
     </header>
     <section class="vitals" aria-label="Character status">
@@ -337,7 +356,7 @@ function startArena(run: Run, isNew = false): void {
       <div class="combat-line" id="combat-line">Auto combat active</div>
       <div class="combat-controls" role="group" aria-label="Automatic combat actions">
         <button class="combat-button" data-action="steel" id="steel" aria-label="Sword · Physical attack" aria-keyshortcuts="1" style="--spell:#eac180">${icon('steel')}<small>ATK</small></button>
-        ${SPELL_IDS.map((id, i) => `<button class="combat-button spell-slot" data-action="ability" data-id="${id}" id="action-${id}" aria-describedby="actions-help" aria-keyshortcuts="${i + 2}" style="--spell:${SPELLS[id].color}">${icon(id === 'aegis' ? 'shield' : id)}<small id="cost-${id}"></small><span class="action-lock" aria-hidden="true">${icon('lock')}</span></button>`).join('')}
+        ${combatSpells(run).map((id, i) => `<button class="combat-button spell-slot" data-action="ability" data-id="${id}" id="action-${id}" aria-describedby="actions-help" aria-keyshortcuts="${i + 2}" style="--spell:${SPELLS[id].color}">${spellIcon(id)}<small id="cost-${id}"></small><span class="action-lock" aria-hidden="true">${icon('lock')}</span></button>`).join('')}${!run.support ? '<button class="combat-button empty-power" id="action-support" data-action="sealed-power" aria-label="Fifth spell: unlocked after Chapter I" aria-keyshortcuts="6"><span class="sr-only">Unlocked after Chapter I</span></button>' : ''}
       </div>
       <span class="sr-only" id="actions-help">Tap to select automatic casting. Hold a spell, right-click it or press Shift+Enter on it for details and pause combat. Only the framed action is selected. A ! marks the action needed for a seal. Keys 1 to 6 select actions.</span>
     </footer>
@@ -349,6 +368,8 @@ function startArena(run: Run, isNew = false): void {
   displayEncounter();
   updateHud();
   save();
+  if (run.interlude !== null) showInterlude();
+  else if (needsSupportChoice(run)) showSupportChoice();
 }
 
 function bindActions(): void {
@@ -445,17 +466,17 @@ function updateHud(): void {
   find('enemy-meter').setAttribute('aria-valuenow', String(r.foeHp));
   find('enemy-meter').setAttribute('aria-valuemax', String(foe.hp));
   find('steel').setAttribute('aria-pressed', String(r.mode === 'steel'));
-  for (const id of SPELL_IDS) {
+  for (const id of combatSpells(r)) {
     const rank = knownRank(r, id), button = find('action-' + id);
     button.setAttribute('aria-pressed', String(r.mode === 'magic' && r.spell === id));
     button.dataset.locked = String(!rank);
     button.classList.toggle('locked', !rank);
-    button.classList.toggle('low-mana', Boolean(rank && r.mp + 1e-8 < spellCost(id, rank)));
-    button.setAttribute('aria-label', spellLabel(r, id) + (rank ? ' · ' + spellCost(id, rank) + ' MP' : ' · Locked, hold for details'));
-    find('cost-' + id).textContent = rank ? spellCost(id, rank) + ' MP' : r.level < SPELLS[id].level ? 'LV ' + SPELLS[id].level : 'Learn';
+    button.classList.toggle('low-mana', Boolean(rank && r.mp + 1e-8 < actionSpellCost(r, id)));
+    button.setAttribute('aria-label', spellLabel(r, id) + (rank ? ' · ' + actionSpellCost(r, id) + ' MP' : ' · Locked, hold for details'));
+    find('cost-' + id).textContent = rank ? actionSpellCost(r, id) + ' MP' : r.level < SPELLS[id].level ? 'LV ' + SPELLS[id].level : 'Learn';
   }
   const protection = aegisProtection(r.wardRank);
-  find('aegis-status').textContent = [r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '',r.journey.boon ? BOON_TEXT[r.journey.boon.kind] + ' · ' + r.journey.boon.left + ' victories' : ''].filter(Boolean).join('\n');
+  find('aegis-status').textContent = [r.empower && r.support ? SPELLS[r.support].name + ' · ' + supportSummary(r.support, r.empower.rank, r.empower.left) : '',r.ward > 0 ? '◇ Aegis −' + Math.round(protection.reduction * 100) + '% · ' + r.ward + ' hits' : '',r.journey.boon ? BOON_TEXT[r.journey.boon.kind] + ' · ' + r.journey.boon.left + ' victories' : ''].filter(Boolean).join('\n');
   const intent = find('enemy-intent'), next = r.intent ?? nextEnemyMove(r, foe);
   intent.hidden = r.phase !== 'fight';
   const counter=chapterCounter(r,foe);
@@ -498,7 +519,7 @@ function outcome(): void {
     });
     return;
   }
-  setMusic(r.phase === 'fallen' ? 'defeat' : battle!.foe.chapter ? r.wave===32?'final':'chapter' : 'battle');
+  setMusic(r.phase === 'fallen' ? 'defeat' : r.phase === 'clear' && battle!.foe.chapter ? 'interlude' : battle!.foe.chapter ? r.wave===32?'final':'chapter' : 'battle');
   el.hidden = r.phase === 'fight' || r.phase === 'clear';
   el.className = 'outcome';
   if (el.hidden) { el.innerHTML = ''; return; }
@@ -597,6 +618,11 @@ function battleEvent(event: BattleEvent): void {
       if (!reduced.matches) effects?.add('ward');
       pop('AEGIS · ' + fmt(event.amount) + ' HITS', '#a4ffc0', 'incoming');
       break;
+    case 'empower':
+      void playSound('heal');
+      if (!reduced.matches && event.spell !== 'aegis') effects?.add(event.spell);
+      pop(SPELLS[event.spell].name.toUpperCase() + ' · ' + event.amount, SPELLS[event.spell].color, 'incoming');
+      break;
     case 'empty':
       paceHint = 'Low MP · Switched to steel';
       break;
@@ -605,6 +631,7 @@ function battleEvent(event: BattleEvent): void {
       toast('Level ' + fmt(event.level) + (event.spells.length ? ' · Learned ' + event.spells.map(id => SPELLS[id].name).join(', ') : ' · Stats increased'));
       break;
     case 'kill':
+      if (current().interlude !== null) app.querySelector('.arena')?.classList.add('chapter-concluding');
       if (current().phase === 'victory') history = achievementHistory(current().runId);
       animate('slain');
       paceHint = '';
@@ -613,7 +640,6 @@ function battleEvent(event: BattleEvent): void {
       if (event.loot) toast('Relic found · ' + gearName(event.loot, current().hero));
       rewardLine = '+' + fmt(event.xp) + ' XP · +' + fmt(event.gold) + ' gold' + (event.loot ? ' · Relic: ' + gearName(event.loot, current().hero) : '') + (event.essence ? ' · +' + event.essence + ' Essence' : '');
       if (current().phase === 'clear') toast('Guardian slain · ' + rewardLine);
-      if (battle?.foe.boss && event.firstClear && CHAPTERS.some(c => c.wave === current().wave)) notifyJournal(current().wave);
       save();
       break;
     case 'enter':
@@ -635,20 +661,53 @@ function spellLabel(run: Run, id: SpellId): string {
   const rank = knownRank(run, id);
   return SPELLS[id].name + (rank ? ' Lvl ' + rank : '');
 }
+function supportSummary(id: SupportId, rank: number, remaining?: number): string {
+  if (id === 'aegis') {
+    const effect = aegisProtection(rank);
+    return '−' + Math.round(effect.reduction * 100) + '% damage / ' + (remaining ?? effect.charges) + ' incoming hits';
+  }
+  const effect = enchantmentEffect(id, rank);
+  return '+' + Math.round((effect.multiplier - 1) * 100) + '% ' + (id === 'haste' ? 'Speed / ' : id === 'surge' ? 'spell power / ' : 'steel power / ') + (remaining ?? effect.charges) + (id === 'haste' ? ' actions' : id === 'surge' ? ' offensive spells · +' + effect.surcharge + ' MP each' : ' steel strikes');
+}
+function sealedPower(): void {
+  openDialog('sealed-power', 'An oath still sleeping', `<p class="sheet-foot">Your fifth spell awakens after Chapter I, once the guardian of wave 4 has fallen. Choose one of four powers. That choice is permanent for this adventure.</p><button class="secondary wide" data-action="close">Return to combat ${icon('next')}</button>`);
+}
+function showInterlude(): void {
+  const run = current(), chapter = CHAPTERS.find(c => c.wave === run.interlude);
+  if (!chapter || chapter.wave === 32) return;
+  lastFrame = 0;
+  mount('interlude', `<main class="chapter-interlude" aria-labelledby="interlude-title" tabindex="-1">
+    <div class="interlude-illustration"><img src="${art(journalArt(run, chapter))}" alt="${chapter.title}"><div class="interlude-vignette"></div><span class="kicker">CHAPTER ${chapter.wave / 4} · GUARDIAN VANQUISHED</span></div>
+    <article class="interlude-copy"><p class="kicker">THE CHRONICLE</p><h1 id="interlude-title">${chapter.title}</h1>${chapter.text.map(text => '<p>' + escapeHtml(text.replaceAll('{name}', run.name)) + '</p>').join('')}<aside><span class="kicker">${escapeHtml(run.name)} · ${HEROES[run.hero].name}</span><p>${escapeHtml(journalVoice(run.hero, chapter))}</p></aside></article>
+    <footer class="interlude-footer"><p class="kicker">NEXT · CHAPTER ${chapter.wave / 4 + 1} · ${WAVES[chapter.wave]![0]}</p><button class="primary wide" data-action="interlude-next">Continue the journey ${icon('next')}</button><button class="text-action" data-action="exit">Save &amp; return to title</button></footer>
+  </main>`);
+  save();
+}
+function showSupportChoice(preview: SupportId | null = null): void {
+  if (!needsSupportChoice(current()) || current().interlude !== null) return;
+  const run = current(), rank = run.spellRanks.aegis ?? 1;
+  supportPreview = preview;
+  mount('attunement', `<main class="attunement-screen" aria-labelledby="attunement-title" tabindex="-1">
+    <header class="attunement-heading"><p class="kicker">CHAPTER II · THE FIFTH SPELL</p><h1 id="attunement-title">Choose your awakening</h1><p>Four paths answer your oath. Bind one power to ${escapeHtml(run.name)}.</p></header>
+    <div class="power-choices" role="group" aria-label="Permanent spell choices">${SUPPORT_IDS.map(id => `<button class="power-choice" data-action="support-preview" data-id="${id}" aria-pressed="${preview === id}" style="--spell:${SPELLS[id].color}"><span class="power-icon">${spellIcon(id)}</span><span><strong>${SPELLS[id].name}</strong><small>${supportSummary(id, rank)}</small><small>Lvl ${rank} · ${spellCost(id, rank)} MP to activate</small></span></button>`).join('')}</div>
+    <section class="power-preview" aria-live="polite">${preview ? `<p class="kicker">${SPELLS[preview].name} · PREVIEW</p><p>${SPELLS[preview].text}</p><p>At level 10: ${supportSummary(preview, 10)}. Activation: ${spellCost(preview, 10)} MP.</p><p>Uses one action, then selects steel. Cannot stack or refresh active charges. Charges last across ordinary encounters and reset at a new wave or retry.</p>` : '<p>Select a power to preview its effects. Every class can choose any path.</p>'}${rank > 1 ? `<p class="inherited-rank">Your previous Aegis upgrades carry over: the chosen power starts at level ${rank}.</p>` : ''}</section>
+    <footer class="power-footer"><p class="permanent-choice">This choice is permanent for this adventure.<br>You can choose a different power in a new game.</p><button class="primary wide" data-action="support-confirm" ${preview ? '' : 'disabled'}>${preview ? 'Bind ' + SPELLS[preview].name : 'Choose a power above'} ${icon('next')}</button><button class="text-action" data-action="exit">Decide later · Save &amp; return to title</button></footer>
+  </main>`);
+  save();
+}
 function spellInfo(id: SpellId): void {
   if (!battle || screen !== 'arena') return;
   const r = current(), spell = SPELLS[id], rank = knownRank(r, id), shown = Math.max(1, rank);
-  const protection = aegisProtection(shown);
-  const detail = id === 'aegis' ? `−${Math.round(protection.reduction * 100)}% physical and magic damage for ${protection.charges} incoming attacks. Cast once, then return to steel. Active charges survive changing spells. Cannot stack or refresh remaining charges.` :
+  const detail = isSupport(id) ? supportSummary(id, shown) + '. Cast once, then return to steel. Charges survive action changes and ordinary encounters. Cannot stack or refresh active charges.' :
     id === 'mend' ? `Healing ×${spellBoost(shown).toFixed(2)}. Casts at full MP cost whenever any HP is missing, even for a small wound. Automatically selects steel after reaching full HP or when MP are insufficient. It stays off until you select it again.` :
     `Power ×${spellBoost(shown).toFixed(2)} of the base spell.${id === 'rime' ? ' Delays enemy attacks; a prepared spell can be delayed by at most 0.6 seconds in total.' : ''}`;
   const unlock = rank ? '' : r.level < spell.level ? `Reach character level ${spell.level}.${spell.price ? ' Then learn it at the Workshop after a defeat.' : ' Learned automatically.'}` : 'Learn this spell at the Workshop after a defeat for ' + spell.price + ' Arcane Essence.';
-  openDialog('spell-info', spellLabel(r, id), `<div class="spell-detail" style="--spell:${spell.color}"><div class="spell-symbol">${icon(id === 'aegis' ? 'shield' : id)}</div><p>${spell.text}</p><p>${detail}</p><p><strong>${rank ? 'Current level: ' + rank + ' / 10' : 'Not learned · Level 1 preview'} · ${spellCost(id, shown)} MP</strong></p>${unlock ? '<p>' + unlock + '</p>' : ''}<p class="sheet-foot">Combat is paused. Closing this page keeps your selected action.</p><button class="secondary wide" data-action="close">Return to combat ${icon('next')}</button></div>`, 'SPELL DETAILS');
+  openDialog('spell-info', spellLabel(r, id), `<div class="spell-detail" style="--spell:${spell.color}"><div class="spell-symbol">${icon(id === 'aegis' ? 'shield' : id)}</div><p>${spell.text}</p><p>${detail}</p><p><strong>${rank ? 'Current level: ' + rank + ' / 10' : 'Not learned · Level 1 preview'} · ${rank ? actionSpellCost(r, id) : spellCost(id, shown)} MP</strong></p>${unlock ? '<p>' + unlock + '</p>' : ''}<p class="sheet-foot">Combat is paused. Closing this page keeps your selected action.</p><button class="secondary wide" data-action="close">Return to combat ${icon('next')}</button></div>`, 'SPELL DETAILS');
 }
 function selectSpell(id: SpellId): void {
   if (!battle || current().phase !== 'fight') return;
   if (!knownRank(current(), id)) { spellInfo(id); return; }
-  if (id === 'aegis' && current().ward > 0) { spellInfo(id); return; }
+  if (isSupport(id) && (current().ward > 0 || current().empower)) { spellInfo(id); return; }
   current().spell = id;
   mode('magic');
 }
@@ -708,6 +767,7 @@ function gearView(): void {
       <button class="compact rename-character" id="rename-character" data-action="rename">Rename</button></div>
       <dl class="stat-grid">${Object.entries(STAT_NAMES).map(([key, name]) => `<div><dt>${name}</dt><dd>${statText(key as keyof Stats, s[key as keyof Stats])}</dd></div>`).join('')}</dl>
       <p class="sheet-foot">Weapon rank ${weaponRank(r)} / Wave ${r.wave} · ${powerText(r)} offensive power. Each missing weapon rank halves steel and spell damage. Upgrade your weapon at the recovery camp.</p>
+      <p class="sheet-foot">Fifth spell: ${r.support ? spellLabel(r,r.support)+' · Bound for this adventure' : 'Awakens after Chapter I'}</p>
       <p class="sheet-foot">${fmt(r.kills)} foes slain · ${fmt(r.deaths)} falls · ${fmt(r.inventory.length)} gear owned</p><p class="sheet-foot">${fmt(r.essence)} Arcane Essence</p>`;
   } else if (gearTab === 'equip') {
     body = `<div class="gear-list">${GEAR_SLOTS.map(g => {
@@ -718,18 +778,17 @@ function gearView(): void {
     }).join('')}</div>`;
   } else if (gearTab === 'workshop') {
     body = `<div class="sheet-caption"><span>ARCANE WORKSHOP</span><span class="coin">◆ ${fmt(r.essence)} Essence</span></div>
-      <div class="gear-list">${SPELL_IDS.map(id => {
+      <div class="gear-list">${combatSpells(r).map(id => {
         const s = SPELLS[id], rank = knownRank(r, id), price = workshopPrice(r, id);
         const status = r.level < s.level ? 'Lv. ' + s.level : price === undefined ? 'Max level' : '◆ ' + price;
         const action = (rank ? 'Upgrade ' : 'Learn ') + s.name;
-        const wardText=(level:number)=>{const p=aegisProtection(level);return '−'+Math.round(p.reduction*100)+'% / '+p.charges+' hits';};
-        const effect=id==='aegis' ? 'Protection: '+wardText(Math.max(1,rank))+(price!==undefined&&rank?' → '+wardText(rank+1):'') : (id==='mend'?'Healing':'Spell power')+': ×'+spellBoost(Math.max(1,rank)).toFixed(2)+(price!==undefined&&rank?' → ×'+spellBoost(rank+1).toFixed(2):'');
+        const effect=isSupport(id) ? supportSummary(id,Math.max(1,rank))+(price!==undefined&&rank?' → '+supportSummary(id,rank+1):'') : (id==='mend'?'Healing':'Spell power')+': ×'+spellBoost(Math.max(1,rank)).toFixed(2)+(price!==undefined&&rank?' → ×'+spellBoost(rank+1).toFixed(2):'');
         return `<div class="gear-row"><span><strong>${spellLabel(r, id)}</strong>
           <small>${s.text}</small>
           <small>${effect}</small>
           <small>${rank ? 'Current: '+spellCost(id,rank)+' MP per cast' : 'Level 1: '+spellCost(id,1)+' MP per cast'}${price !== undefined && rank ? ' → Next: '+spellCost(id,rank+1)+' MP' : ''}</small></span>
           <button class="compact" data-action="buy-spell" data-id="${id}" ${price === undefined || r.essence < price ? 'disabled' : ''} aria-label="${price === undefined ? status : action + ' for ' + price + ' Arcane Essence'}">${status}</button></div>`;
-      }).join('')}</div><p class="sheet-foot">No wave requirements. Max spell level ${MAX_SPELL_RANK}. Upgrades are permanent and always cast at the highest learned level: stronger effects also use more MP. Marked foes give 1 Essence and guardians give 3 on every victory, including retries.</p>`;
+      }).join('')}</div><p class="sheet-foot">${r.support ? 'Permanent power: ' + SPELLS[r.support].name + '. ' : 'The fifth spell awakens after Chapter I. '}Max spell level ${MAX_SPELL_RANK}. Upgrades are permanent and always cast at the highest learned level: stronger effects also use more MP. Marked foes give 1 Essence and guardians give 3 on every victory, including retries.</p>`;
   } else {
     body = `<label class="auto-equip"><input type="checkbox" id="auto-equip" ${autoEquip ? 'checked' : ''}> Auto-equip purchases</label>
       <div class="sheet-caption"><label>GEAR RANK <select id="shop-rank">${Array.from({length: r.wave}, (_, i) => `<option ${shopTier === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label><span class="coin">◆ ${fmt(r.gold)} gold</span></div>
@@ -746,7 +805,6 @@ function gearView(): void {
 }
 let journalIndex = 0;
 let journalFromOptions = false;
-let journalTimer = 0;
 function roadView(): void {
   if (!battle || current().journey.pending === null) return;
   const r=current(), index=r.journey.pending!, scene=roadScene(r,index), arrival=roadArrival(r,index);
@@ -769,17 +827,6 @@ function roadLog(): void {
   openDialog('road-log','Roadside encounters',`<p class="sheet-foot">The people and places you stopped for. Your choices are remembered for this adventure.</p><div class="journal-list">${r.journey.choices.map(c=>{const scene=roadScene(r,c.slot);return `<button class="journal-card" data-action="road-memory" data-id="${c.slot}"><img src="${art('road-'+scene.art)}" alt="" loading="lazy"><span><small>WAVE ${ROAD_WAVES[c.slot]}</small><strong>${scene.title}</strong><em>${scene.choices[c.option]!.label}</em></span></button>`;}).join('')||'<p class="sheet-foot">No encounters recorded yet. Keep following the road.</p>'}</div><button class="secondary wide" data-action="options">Back to options ${icon('back')}</button>`,'YOUR JOURNEY');
   find('sheet').scrollTop=0;
 }
-function notifyJournal(wave: number): void {
-  const index = CHAPTERS.findIndex(c => c.wave === wave);
-  if (index < 0) return;
-  journalIndex = index;
-  const chapter = CHAPTERS[index]!, node = find('journal-notice');
-  node.innerHTML = `<img src="${art(journalArt(current(), chapter))}" alt=""><span>Chronicle updated<small>${chapter.title}</small></span>`;
-  node.hidden = false;
-  node.classList.add('shown');
-  clearTimeout(journalTimer);
-  journalTimer = window.setTimeout(() => { node.classList.remove('shown'); node.hidden = true; }, 4500);
-}
 function journalView(): void {
   if (!battle) return;
   const r = current();
@@ -794,8 +841,6 @@ function journalEntry(index: number): void {
   if (!journalUnlocked(r,chapter.wave)) return;
   journalIndex = index;
   r.journalRead |= 1 << index;
-  find('journal-notice').classList.remove('shown');
-  find('journal-notice').hidden = true;
   save();
   openDialog('journal-entry', chapter.title, `<article class="journal-entry"><button class="journal-image" data-action="journal-art" aria-label="Enlarge illustration"><img src="${art(journalArt(r,chapter))}" alt="${chapter.title}"><span>${icon('zoom')} View illustration</span></button>${chapter.text.map(text=>'<p>'+escapeHtml(text.replaceAll('{name}',r.name))+'</p>').join('')}<aside><span class="kicker">${HEROES[r.hero].name.toUpperCase()} · PERSONAL RECORD</span><p>${escapeHtml(journalVoice(r.hero,chapter))}</p></aside></article><button class="secondary wide" data-action="close">Back to Chronicle ${icon('back')}</button>`, 'AFTER WAVE ' + chapter.wave);
   find('sheet').scrollTop = 0;
@@ -1055,6 +1100,14 @@ app.addEventListener('click', event => {
   const {action, id} = target.dataset;
   if (action !== 'title-sound') void unlockAudio().then(renderTitleSound);
   switch (action) {
+    case 'interlude-next':
+      if (finishInterlude(current())) { save(); if (needsSupportChoice(current())) showSupportChoice(); else startArena(current()); }
+      break;
+    case 'support-preview': if (SUPPORT_IDS.includes(id as SupportId)) showSupportChoice(id as SupportId); break;
+    case 'support-confirm':
+      if (supportPreview && chooseSupport(current(), supportPreview)) { save(); startArena(current()); }
+      break;
+    case 'sealed-power': sealedPower(); break;
     case 'story-next': advanceStory(); break;
     case 'chapter-begin': chapterBegin(); break;
     case 'install': void installGame(); break;
@@ -1092,7 +1145,6 @@ app.addEventListener('click', event => {
     case 'close': close(); break;
     case 'options': options(); break;
     case 'journal': journalFromOptions = dialogKind === 'options'; journalView(); break;
-    case 'journal-new': journalFromOptions = false; journalEntry(journalIndex); break;
     case 'journal-entry': journalEntry(Number(id)); break;
     case 'journal-art': journalZoom(); break;
     case 'road-log': roadLog(); break;
@@ -1167,8 +1219,10 @@ window.addEventListener('keydown', event => {
   void unlockAudio();
   if (event.key === '1') mode('steel');
   const index = Number(event.key) - 2;
-  if (index >= 0 && index < SPELL_IDS.length && Number.isInteger(index)) {
-    if (event.shiftKey) spellInfo(SPELL_IDS[index]!); else selectSpell(SPELL_IDS[index]!);
+  if (index >= 0 && index < 5 && Number.isInteger(index)) {
+    const id = combatSpells(current())[index];
+    if (!id) sealedPower();
+    else if (event.shiftKey) spellInfo(id); else selectSpell(id);
   }
   if (event.key === 'Escape') options();
 });
@@ -1182,6 +1236,13 @@ window.addEventListener('pagehide', () => { if (battle) save(); });
 function frame(now: number): void {
   requestAnimationFrame(frame);
   if (screen !== 'arena' || !battle || dialogKind || document.hidden) { lastFrame = chapterFrame = 0; return; }
+  if (battle.run.interlude !== null) {
+    if (!interludeAt) interludeAt = now + 850;
+    effects?.draw(now);
+    if (now >= interludeAt) showInterlude();
+    return;
+  }
+  if (needsSupportChoice(current())) { showSupportChoice(); return; }
   if (battle.run.chapterIntro) {lastFrame=0;chapterEntrance(now);return;}
   if (battle.run.journey.pending !== null) {lastFrame=0; roadView(); return;}
   if (lastFrame && (battle.run.phase === 'fight' || battle.run.phase === 'clear')) {

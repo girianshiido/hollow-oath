@@ -21,7 +21,8 @@ const MUSIC = {
   chapter: {file:'music-chapter',gain:.31,loopStart:5.714288,loopEnd:74.285744},
   final: {file:'music-final-boss',gain:.31,loopStart:5.454544,loopEnd:70.909072},
   defeat: {file: 'music-defeat', gain: 0.36},
-  ending: {file: 'music-ending', gain: 0.34}
+  ending: {file: 'music-ending', gain: 0.34},
+  interlude: {file: 'music-interlude', gain: 0.36, loopStart: 0, loopEnd: 50.52633333333333}
 } as const;
 type MusicScene = keyof typeof MUSIC;
 let scene: MusicScene | 'silent' = 'title';

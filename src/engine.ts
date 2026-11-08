@@ -3,6 +3,7 @@ import {newJourney, offerRoad, type Journey} from './journey.ts';
 import {CHAPTER_COUNTER,chapterInfo} from './chapters.ts';
 import {
   encounter, ENCOUNTER_COUNT, gearBonus, gearId, gearPrice, HEROES, aegisProtection, spellBoost, MAX_SPELL_RANK, spellUpgradeCost, normalizeCharacterName, spellCost, SPELLS, WAVE_COUNT, xpGoal,
+  enchantmentEffect, isSupport, type SupportId,
   type Enemy, type EnemyMove, type Gear, type GearSlot, type HeroId, type SpellId, type Stats, type Strike
 } from './content.ts';
 
@@ -13,6 +14,10 @@ export interface Run {
   journalRead: number;
   journey: Journey;
   chapterIntro: boolean;
+  chapterSeen: number;
+  interlude: number | null;
+  support: SupportId | null;
+  empower: {rank: number; left: number} | null;
   hero: HeroId; level: number; xp: number; gold: number; wave: number; step: number;
   deaths: number; kills: number; hp: number; mp: number; foeHp: number; broken: number;
   playerGauge: number; enemyGauge: number; mode: 'steel' | 'magic'; spell: SpellId;
@@ -32,6 +37,7 @@ export type BattleEvent =
   | {type: 'block'; strike: Strike; attempt: Strike}
   | {type: 'heal'; amount: number}
   | {type: 'ward'; amount: number}
+  | {type: 'empower'; spell: SupportId; amount: number}
   | {type: 'empty' | 'fallen' | 'enter' | 'armed'}
   | {type: 'kill'; xp: number; gold: number; essence: number; firstClear: boolean; loot?: Gear}
   | {type: 'level'; level: number; spells: SpellId[]};
@@ -100,7 +106,7 @@ export function newRunId(): string {
 }
 export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): Run {
   const run: Run = {
-    runId: newRunId(), journalRead: 0, journey: newJourney(), chapterIntro: false, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
+    runId: newRunId(), journalRead: 0, journey: newJourney(), chapterIntro: false, chapterSeen: 0, interlude: null, support: null, empower: null, name: normalizeCharacterName(name) || HEROES[hero].defaultName, hero, level: 1, xp: 0, gold: 0, wave: 1, step: 1, deaths: 0, kills: 0,
     hp: HEROES[hero].base.hp, mp: HEROES[hero].base.mp, foeHp: 0, broken: 0,
     playerGauge: 0, enemyGauge: 0, mode: 'steel', spell: 'ember',
     chronicle: newChronicle(), essence: 0, essenceEarned: 0, essenceClaims: [], spellRanks: {}, ward: 0, wardRank: 1, enemyTurns: 0, enemyHeals: 0, enemyRecovery: 0, intent: null, castWait: 0, castDelay: 0,
@@ -111,6 +117,7 @@ export function newRun(hero: HeroId, name: string = HEROES[hero].defaultName): R
 }
 
 export function resumeWave(run: Run): void {
+  if (run.interlude !== null || needsSupportChoice(run)) return;
   if (run.phase === 'fallen' || run.phase === 'victory') run.step = 1;
   else if (run.phase === 'clear') {
     run.wave++;
@@ -122,6 +129,7 @@ export function resumeWave(run: Run): void {
   run.mp = values.mp;
   if (run.mode === 'magic' && run.spell === 'mend') run.mode = 'steel';
   run.ward = 0;
+  run.empower = null;
   run.chronicle.gearFreeAttempt = Object.keys(run.equipped).length === 0;
   run.chronicle.spellFreeAttempt = true;
   run.phase = 'fight';
@@ -141,14 +149,42 @@ export function chapterCounter(run: Run,foe: Enemy): Strike | undefined {
 }
 
 export function knownRank(run: Run, id: SpellId): number {
+  if (isSupport(id) && (run.support !== id || (run.wave < 5 && !(run.wave === 4 && run.phase === 'clear')))) return 0;
   const spell = SPELLS[id];
   return run.level < spell.level ? 0 : (run.spellRanks[id] ?? (spell.price ? 0 : 1));
 }
 export function preparedSpellCost(run: Run): number {
-  return spellCost(run.spell, knownRank(run, run.spell));
+  return actionSpellCost(run, run.spell);
+}
+export function actionSpellCost(run: Run, id: SpellId): number {
+  const extra = run.support === 'surge' && run.empower && SPELLS[id].strike ? enchantmentEffect('surge', run.empower.rank).surcharge : 0;
+  return spellCost(id, knownRank(run, id)) + extra;
+}
+export function needsSupportChoice(run: Run): boolean {
+  return run.support === null && run.phase !== 'victory' && (run.wave >= 5 || (run.wave === 4 && run.phase === 'clear'));
+}
+export function chooseSupport(run: Run, id: SupportId): boolean {
+  if (!isSupport(id) || !needsSupportChoice(run) || run.interlude !== null) return false;
+  const inherited = run.spellRanks.aegis ?? 1;
+  delete run.spellRanks.aegis;
+  run.support = id;
+  run.spellRanks[id] = inherited;
+  run.mode = 'steel';
+  run.ward = 0;
+  run.empower = null;
+  return true;
+}
+export function finishInterlude(run: Run): boolean {
+  if (run.interlude === null) return false;
+  const bit = 1 << (run.interlude / 4 - 1);
+  run.chapterSeen |= bit;
+  run.journalRead |= bit;
+  run.interlude = null;
+  return true;
 }
 export function workshopPrice(run: Run, id: SpellId): number | undefined {
   const rank = knownRank(run, id);
+  if (isSupport(id) && !rank) return undefined;
   if (run.level < SPELLS[id].level || rank >= MAX_SPELL_RANK) return undefined;
   return rank === 0 ? SPELLS[id].price : spellUpgradeCost(rank);
 }
@@ -225,7 +261,7 @@ export class Battle {
   }
   tick(seconds: number, realSeconds = seconds): void {
     const run = this.run;
-    if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null || run.chapterIntro) return;
+    if (!Number.isFinite(seconds) || seconds <= 0 || run.journey.pending !== null || run.chapterIntro || run.interlude !== null || needsSupportChoice(run)) return;
     this.settleMend();
     const clock = run.chronicle;
     const timeScale = Number.isFinite(realSeconds) && realSeconds > 0 ? realSeconds / seconds : 1;
@@ -246,7 +282,7 @@ export class Battle {
     if (run.phase !== 'fight') return;
     const epsilon = 1e-8;
     // Schedule both clocks on the same time axis. The enemy acts first on an exact tie.
-    while (remaining > epsilon && run.phase === 'fight' && run.journey.pending === null && !run.chapterIntro) {
+    while (remaining > epsilon && run.phase === 'fight' && run.journey.pending === null && !run.chapterIntro && run.interlude === null && !needsSupportChoice(run)) {
       if (run.wait > epsilon) {
         const elapsed = Math.min(run.wait, remaining);
         run.wait -= elapsed;
@@ -264,7 +300,7 @@ export class Battle {
         }
         continue;
       }
-      const playerSpeed = this.player.spd * (run.journey.boon?.kind === 'haste' ? 1.12 : 1);
+      const playerSpeed = this.player.spd * (run.journey.boon?.kind === 'haste' ? 1.12 : 1) * (run.support === 'haste' && run.empower ? enchantmentEffect('haste', run.empower.rank).multiplier : 1);
       const playerAt = Math.max(0, (1 - run.playerGauge) / playerSpeed);
       const enemyAt = run.intent ? run.castWait : Math.max(0, (1 - run.enemyGauge) / this.foe.spd);
       const elapsed = Math.min(remaining, playerAt, enemyAt);
@@ -336,14 +372,24 @@ export class Battle {
   private regenerate(elapsed: number): void {
     this.run.mp = Math.min(this.player.mp, this.run.mp + elapsed * this.player.regen);
   }
+  private settleMana(): void {
+    if (this.run.mode === 'magic' && this.run.mp + 1e-8 < preparedSpellCost(this.run)) {
+      this.run.mode = 'steel';
+      this.send({type: 'empty'});
+    }
+  }
   private playerTurn(): void {
     const run = this.run;
+    if (run.mode === 'magic' && !knownRank(run, run.spell)) run.mode = 'steel';
     const spell = SPELLS[run.spell];
     const rank = knownRank(run, run.spell);
-    const cost = spellCost(run.spell, rank);
+    const cost = preparedSpellCost(run);
     const boost = spellBoost(rank);
     let strike: Strike = 'steel';
-    const shouldCast = run.spell !== 'aegis' || run.ward === 0;
+    const empowered = run.empower;
+    // Haste counts the hero's actions, not wall time. Menus and transitions consume nothing.
+    if (run.support === 'haste' && empowered && --empowered.left === 0) run.empower = null;
+    const shouldCast = !isSupport(run.spell) || (run.ward === 0 && !empowered);
     if (run.mode === 'magic' && shouldCast) {
       if (run.mp + 1e-8 < cost) {
         run.mode = 'steel';
@@ -352,14 +398,11 @@ export class Battle {
         run.mp = Math.max(0, run.mp - cost);
         run.chronicle.spellUses[run.spell]++;
         run.chronicle.spellFreeAttempt = false;
-        if (run.mp + 1e-8 < cost) {
-          run.mode = 'steel';
-          this.send({type: 'empty'});
-        }
         if (run.spell === 'mend') {
           const amount = Math.min(this.player.hp - run.hp, Math.round(this.healPower() * boost));
           run.hp = Math.min(this.player.hp, run.hp + amount);
           if (run.hp >= this.player.hp) run.mode = 'steel';
+          this.settleMana();
           this.send({type: 'heal', amount: Math.round(amount)});
           return;
         }
@@ -370,9 +413,20 @@ export class Battle {
           this.send({type: 'ward', amount: run.ward});
           return;
         }
+        if (isSupport(run.spell)) {
+          const effect = enchantmentEffect(run.spell, rank);
+          run.empower = {rank, left: effect.charges};
+          run.mode = 'steel';
+          this.send({type: 'empower', spell: run.spell, amount: effect.charges});
+          return;
+        }
         strike = spell.strike!;
       }
     }
+    const enhanced = empowered && ((run.support === 'surge' && strike !== 'steel') || (run.support === 'fury' && strike === 'steel'));
+    const multiplier = enhanced ? enchantmentEffect(run.support as 'surge' | 'fury', empowered.rank).multiplier : 1;
+    if (enhanced && --empowered.left === 0) run.empower = null;
+    this.settleMana();
     if(chapterCounter(run,this.foe)===strike) {
       run.intent=null; run.castWait=run.castDelay=run.enemyGauge=0; run.enemyTurns++;
       this.send({type:'interrupt',strike});
@@ -388,8 +442,8 @@ export class Battle {
       this.send({type: 'seal', strike: seal});
     }
     const power = strike === 'ember' ? 1.36 : strike === 'rime' ? 1.18 : 1.62;
-    const baseDamage = strike === 'steel' ? impact(this.player.atk, this.foe.def) :
-      impact(this.player.mag * power * boost, this.foe.res * (strike === 'storm' ? 0.38 : 1));
+    const baseDamage = strike === 'steel' ? impact(this.player.atk * multiplier, this.foe.def) :
+      impact(this.player.mag * power * boost * multiplier, this.foe.res * (strike === 'storm' ? 0.38 : 1));
     const trait = enemyAffinity(run, this.foe);
     const affinity = trait?.resists === strike ? (trait.immune ? 'immune' : 'resisted') :
       trait?.weak === strike ? 'weak' : undefined;
@@ -444,7 +498,7 @@ export class Battle {
       this.player = stats(run);
       run.hp = Math.min(this.player.hp, run.hp + this.player.hp - old.hp + this.player.hp * 0.105 * (run.level - before));
       run.mp = Math.min(this.player.mp, run.mp + this.player.mp - old.mp + this.player.mp * 0.28 * (run.level - before));
-      const spells = (Object.keys(SPELLS) as SpellId[]).filter(id => !SPELLS[id].price && SPELLS[id].level > before && SPELLS[id].level <= run.level);
+      const spells = (Object.keys(SPELLS) as SpellId[]).filter(id => !isSupport(id) && SPELLS[id].level > before && SPELLS[id].level <= run.level);
       this.send({type: 'level', level: run.level, spells});
     }
     let loot: Gear | undefined;
@@ -465,6 +519,8 @@ export class Battle {
       if (run.wave === WAVE_COUNT) clock.finished = true;
       run.phase = run.wave === WAVE_COUNT ? 'victory' : 'clear';
       run.wait = run.phase === 'clear' ? 0.95 : 0;
+      if (foe.chapter && run.wave < WAVE_COUNT && !(run.chapterSeen & (1 << (run.wave / 4 - 1)))) run.interlude = run.wave;
+      if (run.phase === 'victory') run.chapterSeen |= 128;
     }
     else run.wait = 0.72;
     const essence = availableEssence(run, foe);

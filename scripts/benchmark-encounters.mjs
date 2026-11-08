@@ -7,6 +7,7 @@ export function benchmark(hero, level, wave, gearTier=0) {
  for(let step=1;step<32;step++){
   const r=newRun(hero);Object.assign(r,{level,wave,step,foeHp:encounter(wave,step).hp,wait:0});
   if(gearTier){r.chronicle.gearFreeAttempt=false;r.inventory=GEAR_SLOTS.map(slot=>({slot,tier:gearTier,relic:false}));r.equipped=Object.fromEntries(r.inventory.map(g=>[g.slot,gearId(g)]));}
+  if(wave>=5){r.support='aegis';r.spellRanks.aegis=1;}
   r.hp=stats(r).hp;r.mp=stats(r).mp;
   let playerHits=0,enemyHits=0,damage=0,seconds=0;
   const b=new Battle(r,e=>{if(e.type==='hit'&&e.damage>0)playerHits++;if(e.type==='hurt'){enemyHits++;damage+=e.damage;}},()=>.5);
